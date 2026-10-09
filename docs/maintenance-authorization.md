@@ -13,3 +13,17 @@ and the authenticated Feedback link, validate the running artifact, and submit
 the maintenance changes through the SDLC review and PR process. Preserve unresolved
 failure evidence in an issue without transcript text or credentials. This does
 not authorize changes to the external cluster or public DNS.
+
+## Next sprint authorization
+
+Scott's October 9, 2026 instruction, preserved verbatim:
+
+> 1> so the dashboard can be created by me - so just make sure the metrics endpoint is there.
+>
+> otherwise proceed.
+
+Scope: metrics endpoint and audio instrumentation (no dashboard), optional rated
+feedback and explicit transcript submission, admin review with retention/deletion,
+admin runtime provider/model settings with validation/history/rollback, and the
+fictional cast and conversation behavior improvements discussed in this session.
+Validate and deliver through SDLC. No external deployment or release is requested.

@@ -19,10 +19,10 @@ class Budget:
                  and settings.stt_url == 'wss://api.deepgram.com/v1/listen'
                  and (not settings.jev_shadow or settings.jev_model == 'jev-1.13.0'))
         raw = os.getenv('COST_RATES_JSON', '')
-        if not self.mock and not known and not raw:
+        if not self.mock and not known and not raw and not getattr(settings, 'cost_rates', None):
             raise ValueError('Unknown pricing: configure COST_RATES_JSON before joining.')
-        self.rates = json.loads(raw) if raw else dict(input_million=.4, output_million=1.6,
-            vision_call=.01, tts_character=.00003, stt_minute=.02, judge_call=.001)
+        self.rates = getattr(settings, 'cost_rates', None) or (json.loads(raw) if raw else dict(input_million=.4, output_million=1.6,
+            vision_call=.01, tts_character=.00003, stt_minute=.02, judge_call=.001))
         for key in ('input_million', 'output_million', 'vision_call', 'tts_character', 'stt_minute', 'judge_call'):
             if key not in self.rates or not math.isfinite(float(self.rates[key])) or float(self.rates[key]) < 0:
                 raise ValueError('Invalid cost schedule')

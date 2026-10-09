@@ -37,11 +37,24 @@ async def main():
                     events.append(json.loads(await ws.recv()))
         assert (await client.post('/api/auth/admin/login',headers={'origin':origin},
                                  json={'password':os.environ['ADMIN_PASSWORD']})).status_code == 200
+        assert (await client.get('/api/admin/feedback')).json()['reviews'] == []
+        sid, token = first['session_id'], first['review_token']
+        feedback = dict(token=token,rating=3,comment='Synthetic artifact smoke')
+        assert (await client.post('/api/feedback/'+sid,headers={'origin':origin},json=feedback)).status_code == 200
+        assert (await client.get('/api/admin/feedback')).json()['reviews'][0]['transcript'] is None
+        assert (await client.get('/metrics')).status_code == 401
+        metrics=await client.get('/metrics',headers={'Authorization':'Bearer '+os.environ['METRICS_TOKEN']})
+        assert metrics.status_code == 200 and 'audience_latency_seconds_count' in metrics.text
+        runtime=(await client.get('/api/admin/runtime')).json()
+        for stage in ('dialogue','vision','tts','stt'):
+            runtime['config'][stage]['model']='mock-model'
+        changed=await client.post('/api/admin/runtime',headers={'origin':origin},json={'expected_revision':0,'config':runtime['config']})
+        assert changed.status_code == 200 and changed.json()['revision'] == 1
         stats=(await client.get('/api/admin')).json()
         assert stats['meetings'] and stats['meetings'][0]['attendees']==2
         assert (await client.post('/api/admin/admission',headers={'origin':origin},json={'paused':True})).status_code==200
         assert (await client.get('/api/admin')).json()['paused']
         await client.post('/api/admin/admission',headers={'origin':origin},json={'paused':False})
-    print('Artifact smoke passed: auth separation, two attendees, audio, recap, durable admin stats and admission.')
+    print('Artifact smoke passed: auth separation, two attendees, audio, recap, durable stats, opt-in feedback, runtime revision, metrics and admission.')
 
 asyncio.run(main())

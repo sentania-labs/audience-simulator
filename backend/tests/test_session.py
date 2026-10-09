@@ -311,3 +311,54 @@ async def test_response_waits_for_pending_visual_evidence(session):
     await s.reply_task
     assert 'seven servers' in prompts[0][-1]['content']
     await s.end()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reply', ['Morgan: Hello there.', '**Morgan:** Hello there.', 'Morgan Hale: Hello there.', 'Infrastructure architect: Hello there.'])
+async def test_speaker_label_never_reaches_speech_even_across_tokens(session, reply):
+    s, events = session
+    s.persona = {'name':'Morgan Hale','role':'Infrastructure architect'}
+    spoken = []
+    class Dialogue:
+        async def stream(self, messages):
+            for character in reply:
+                yield character
+    class Speech:
+        async def stream(self, text):
+            spoken.append(text)
+            yield b'\x01\x00'
+    s.dialogue, s.tts = Dialogue(), Speech()
+    await s.reply('greet', 0)
+    assert spoken == ['Hello there.']
+    assert s.history[-1]['content'] == 'Hello there.'
+    assert next(e for e in events if e['type']=='transcript')['text'] == 'Hello there.'
+
+
+@pytest.mark.parametrize('text', ['Morgan helped me yesterday.', 'I am Morgan.', 'The ratio is 2:1.', 'More recovery evidence, please.'])
+def test_prefix_filter_preserves_ordinary_speech(text):
+    from app.session import SpeakerPrefix
+    prefix = SpeakerPrefix('Morgan')
+    assert ''.join(prefix.feed(c) for c in text)+prefix.finish() == text
+
+
+@pytest.mark.asyncio
+async def test_terminal_speech_stall_is_measured_without_next_chunk(session):
+    s, _ = session
+    class Speech:
+        async def stream(self, text):
+            yield b'\x00\x00'
+            await asyncio.sleep(.03)
+            raise TimeoutError()
+    s.tts = Speech()
+    with pytest.raises(TimeoutError):
+        async for _ in s.synthesize('Hello', 0):
+            pass
+    assert s.measurements['tts_terminal_wait']['max_ms'] >= 25
+
+
+def test_first_name_addresses_authored_cast(session):
+    s, _ = session
+    s.attendees = [{'name':'Morgan Hale'}, {'name':'Riley Chen'}, {'name':'Casey Patel'}]
+    s.speaker_index = 1
+    s.select_speaker('Morgan, what would help?')
+    assert s.persona['name'] == 'Morgan Hale'

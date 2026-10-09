@@ -40,7 +40,7 @@ The bundle pulls the exact published digest. A source checkout supports --build 
 Copy `.env.example` to `.env` only if you do not already have a `.env` file. Fill
 server-side keys, supported model identifiers and endpoint URLs. Never paste keys
 into the browser, a command-line argument, issue or screenshot. The frontend only
-shows endpoint hostnames. Models are deployment settings, not user-facing choices.
+shows endpoint hostnames. Models and approved provider connections are administrator choices, not meeting-user choices. Deployment values seed the initial configuration; saved admin revisions take precedence for new meetings.
 
 ```sh
 npm run build --prefix frontend
@@ -112,8 +112,7 @@ is created by this project. The admin page is /?admin and uses its own password.
 Run one replica and one worker. The PVC stores SQLite spending and session
 metadata. Upgrades use Recreate and disconnect active meetings: pause admissions
 in admin, wait for the active count to reach zero, then sync Argo. Back up the PVC;
-losing it loses budget history. Stats persist until manually removed. Full
-transcripts and images are not stored in that database.
+losing it loses budget history. Stats persist until manually removed. Explicitly submitted feedback and transcripts also live on the PVC for 30 days; no images are stored. Include backup retention in your privacy policy: deleting a live submission cannot remove copies from external backups.
 
 Default controls are configurable environment variables:
 
@@ -149,10 +148,10 @@ PROVIDER_MODE=mock docker compose up --build
 ```
 
 Open http://localhost:8000. Compose binds loopback, runs as a non-root user, and
-stores no session volumes. Port 8000 must be free. Stop the local dev server first.
+uses a persistent data volume. Port 8000 must be free. Stop the local dev server first.
 For remote browser use, provide HTTPS and authentication at your reverse proxy,
 then set `ALLOWED_ORIGINS` to the exact browser origin. No public DNS changes are
-included. This MVP candidate has no multi-tenant authentication or persistence.
+included. This peer preview uses shared passwords, not individual accounts.
 
 ## Privacy and session operation
 
@@ -163,8 +162,8 @@ requires an explicit Share action and permission picker, has a visible indicator
 and can be stopped using either app controls or the browser's native stop control.
 Mute disables microphone tracks and transmission. Webcam and screen audio are unused.
 
-No raw audio or frames are written to disk. The session review remains in
-connection/page memory. Server diagnostic metadata is logged; transcript text
+No raw audio or frames are written to disk. By default the session review remains in
+connection/page memory. After ending, users may submit a rating and comment, with a separate unchecked transcript consent option. The exact transcript is previewed before submission; audio, images, screen observations and background are excluded. Feedback expires after 30 days, is hidden immediately at expiry and purged at least hourly while the app runs (also on startup/access). Users can withdraw while the review remains open; administrators can delete submissions in the review queue. Nothing is automatically used for training. Server diagnostic metadata is logged; transcript text
 is included only when `LOG_TRANSCRIPTS=true`, disclosed before joining. Download is explicit and may
 contain sensitive presentation text. Closing the page loses review; disconnect clears
 backend session state. Provider-side retention is governed by provider agreements,
@@ -268,3 +267,66 @@ confidence and elapsed latency. One request per session can run at a time, with
 a two-second timeout. Results never control cancellation or block speech. Reply
 quality is checked after generation, not used as a pre-speech approval gate.
 No extra service is needed when the observer is disabled.
+
+## Metrics endpoint
+
+Set `METRICS_TOKEN` in the existing Secret (or private Compose environment).
+Prometheus scrapes `GET /metrics` on port 8000 using `Authorization: Bearer <token>`.
+Use a dedicated token, not either login password. Unconfigured scraping returns
+503, missing/wrong credentials return 401. No dashboard or ServiceMonitor is installed.
+
+Metrics use Prometheus text format 0.0.4:
+
+- `audience_active_meetings`: current admitted meetings.
+- `audience_latency_seconds`: histogram labeled by fixed `stage`. Includes first
+  dialogue token, first speech audio, response completion, recognition delay,
+  maximum inter-chunk TTS gap, browser-estimated first playback and playback underrun.
+- `audience_provider_errors_total`: counter labeled by bounded failure stage (`reason`).
+- `audience_cancellations_total`: counter labeled by bounded cancellation source (`reason`).
+
+Histograms/counters reset on process restart. No session IDs, transcript text,
+model names or persona names appear as labels. Browser timings are untrusted
+client estimates, not acoustic measurements. An underrun measures a late chunk
+arriving after previously scheduled audio ran out; initial buffering and deliberate
+cancellation are excluded. No resumed chunk means no measured underrun duration.
+Maximum completed inter-chunk TTS gap is recorded even when a stream fails or is cancelled. `tts_terminal_wait` separately measures the outstanding wait on a failed/cancelled stream, including failure before any audio. Use separate
+cluster metrics to correlate CPU throttling/restarts; these metrics do not establish
+that a stall is caused by Kubernetes.
+
+## Administrator settings and review
+
+`/?admin` contains saved feedback and runtime configuration. An immutable revision
+is created on save; loading a historical revision and saving creates a rollback
+revision. Concurrent stale saves are rejected. Existing meetings retain their
+provider objects, prices and revision. Reviews show that snapshot and timing totals.
+`APP_VERSION` may identify the release; otherwise a source/asset fingerprint is used.
+Configuration and history persist on the existing SQLite volume.
+
+Supported choices are dialogue/vision models using the existing chat-completions
+contract, PCM speech models and voices, and Deepgram/ElevenLabs recognition models.
+No additional native provider protocols are implied. A connection check verifies
+advertised model IDs and a recognition handshake; a practice meeting must still
+verify model capabilities and speech quality. It does not save settings. Pricing
+ceilings must be supplied for admin configurations; spending and time limits remain
+deployment-owned. Configuration save validates structure and pricing, not availability.
+
+Deployment-owned `PROVIDER_CONNECTIONS_JSON` can add named connections per stage:
+
+```json
+{"dialogue":{"secondary":{"base":"https://provider.example.invalid/v1","key_env":"SECONDARY_DIALOGUE_KEY"}},"stt":{"alternate":{"base":"wss://api.elevenlabs.io/v1/speech-to-text/realtime","key_env":"ELEVENLABS_KEY","provider":"elevenlabs"}}}
+```
+
+Supply the referenced key variables through the existing Kubernetes Secret (or
+explicit Compose environment entries). Never put a key into this JSON. The browser
+receives only connection names. The built-in `deployment` connection uses existing
+stage environment variables, preserving unauthenticated local text/vision/speech endpoints. Extra local connections may explicitly set `allow_anonymous: true`; recognition always requires a key. Arbitrary URLs and credentials cannot be entered in
+the admin UI. Keep connection definitions stable while older revisions reference them;
+rollback restores choices, not deleted/rotated deployment secrets.
+
+The setup screen offers 24 authored fictional colleagues across banking,
+manufacturing, energy and transportation, with up to four in a meeting. Public
+filings provide industry context only; the people and incidents are invented.
+Each has a fixed history and objective. Custom meetings remain available. Brief
+rapport is encouraged, tangents should return to business purpose, and speaker
+labels are removed before speech synthesis. These are behavioral instructions,
+not a guarantee about every model response.

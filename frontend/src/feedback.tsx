@@ -1,0 +1,14 @@
+import React, {useState} from 'react';
+import {api} from './access';
+export type TranscriptLine={speaker:string;text:string;t_ms:number;final:boolean};
+export function MeetingFeedback({sid,token,lines}:{sid:string;token:string;lines:TranscriptLine[]}) {
+  const [rating,setRating]=useState(''),[comment,setComment]=useState(''),[share,setShare]=useState(false),[sent,setSent]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  return <section className="feedbackForm config"><h2>How was your meeting?</h2><p>Optional. Your rating and comments help improve the experience. Nothing is submitted until you choose Submit feedback.</p>{sent?<><p role="status">Feedback submitted. Saved for up to 30 days. An administrator can delete it sooner.</p><button disabled={busy} onClick={async()=>{setBusy(true);try{await api(`/api/feedback/${sid}/withdraw`,{token});setSent(false);setMessage('Feedback and attached transcript deleted.');}catch(e){setMessage(String(e));}finally{setBusy(false);}}}>Withdraw submitted feedback</button><p className="hint">You can withdraw here while this review remains open. After leaving it, ask the administrator to delete submission {sid.slice(0,8)}.</p></>:<form onSubmit={async e=>{e.preventDefault();setBusy(true);setMessage('');try{await api(`/api/feedback/${sid}`,{token,rating:Number(rating),comment,share_transcript:share,transcript:share?lines:null});setSent(true);}catch(e){setMessage(String(e));}finally{setBusy(false);}}}>
+    <label>Overall experience<select required value={rating} onChange={e=>setRating(e.target.value)}><option value="">Choose a rating</option>{[1,2,3,4,5].map(n=><option key={n} value={n}>{n} / 5 {n===1?'Poor':n===5?'Excellent':''}</option>)}</select></label>
+    <label>What worked or needs improvement?<textarea maxLength={4000} value={comment} onChange={e=>setComment(e.target.value)}/></label>
+    <label className="check"><input type="checkbox" checked={share} onChange={e=>setShare(e.target.checked)}/><span>Also save my transcript for administrator review. I have reviewed it below and consent to sharing it.</span></label>
+    <p className="hint">Saved for 30 days: rating, comments, model/configuration version, meeting timing and error totals{share?', plus the transcript shown below':''}. No audio, images, screen observations or meeting background are uploaded. Submitted text may contain information you spoke aloud. It is not used for automatic training.</p>
+    {share&&<details open><summary>Transcript to submit ({lines.length} entries)</summary><div className="submissionPreview">{lines.map((line,i)=><p key={i}><strong>{line.speaker}: </strong>{line.text}{!line.final?' (interrupted; may be partly unheard)':''}</p>)}</div></details>}
+    <button className="primary" disabled={busy||!rating}>{busy?'Submitting…':'Submit feedback'}</button>
+  </form>}<p role="status">{message}</p></section>;
+}

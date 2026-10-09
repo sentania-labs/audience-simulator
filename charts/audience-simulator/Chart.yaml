@@ -1,0 +1,6 @@
+apiVersion: v2
+name: audience-simulator
+description: Private peer-preview audience meetings with durable budget limits
+type: application
+version: 0.1.0
+appVersion: latest

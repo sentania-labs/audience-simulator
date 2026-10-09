@@ -192,3 +192,122 @@ async def test_visual_reply_cannot_race_user_turn(session):
     starts = [e for e in events if e['type'] == 'response_start']
     assert len(starts) == 1
     assert len([e for e in events if e['type'] == 'transcript' and e['speaker'] == 'Morgan']) == 1
+
+@pytest.mark.asyncio
+async def test_noise_and_acknowledgment_do_not_cancel_reply(session):
+    s, events = session
+    await s.user_turn('Begin')
+    rid = s.generation
+    await s.recognition({'type': 'speech_started'})
+    await s.recognition({'type': 'partial', 'text': 'Mm-hmm'})
+    await s.recognition({'type': 'final', 'text': 'Mm-hmm'})
+    assert s.generation == rid
+    await s.reply_task
+
+
+@pytest.mark.asyncio
+async def test_confirmed_interruption_cancels_once(session):
+    s, events = session
+    await s.user_turn('Begin')
+    rid = s.generation
+    await s.recognition({'type': 'speech_started'})
+    await s.recognition({'type': 'partial', 'text': 'Stop, let me clarify'})
+    assert s.generation == rid + 1
+    await s.recognition({'type': 'partial', 'text': 'Stop, let me clarify this'})
+    assert s.generation == rid + 1
+    await s.end()
+
+
+@pytest.mark.asyncio
+async def test_final_fragments_merge_before_reply(session):
+    s, events = session
+    s.turn_delay = .03
+    await s.recognition({'type': 'final', 'text': 'Now here is information about'})
+    await s.recognition({'type': 'partial', 'text': 'Deepgram'})
+    await asyncio.sleep(.05)
+    assert not any(e['type'] == 'response_start' for e in events)
+    await s.recognition({'type': 'final', 'text': 'Deepgram.'})
+    await asyncio.sleep(.06)
+    assert s.history[0]['content'] == 'Now here is information about Deepgram.'
+    await s.reply_task
+    await s.end()
+
+
+@pytest.mark.asyncio
+async def test_old_vision_completion_cannot_restore_stale_current(session):
+    s, events = session
+    first = asyncio.Event()
+    release_first = asyncio.Event()
+    second = asyncio.Event()
+    release_second = asyncio.Event()
+    class SlowVision:
+        async def observe(self, frame):
+            if frame == 'old':
+                first.set()
+                await release_first.wait()
+            else:
+                second.set()
+                await release_second.wait()
+            return frame
+    s.vision = SlowVision()
+    s.speech_active = True
+    await s.share(True)
+    await s.frame('old', 1)
+    await first.wait()
+    await s.frame('new', 2)
+    release_first.set()
+    await second.wait()
+    assert s.current is None
+    release_second.set()
+    await s.vision_task
+    assert s.current['text'] == 'new'
+    await s.end()
+
+@pytest.mark.asyncio
+async def test_observer_failure_never_changes_response(session):
+    s, events = session
+    class FailedJudge:
+        async def evaluate(self, state):
+            raise RuntimeError('private provider body')
+    s.judge = FailedJudge()
+    await s.user_turn('Hello')
+    rid = s.generation
+    s.shadow('interruption', 'Stop')
+    await s.judge_task
+    await s.reply_task
+    if s.judge_task:
+        await s.judge_task
+    assert s.generation == rid
+    assert any(e['type'] == 'audio' for e in events)
+    assert any(e['type'] == 'judge_observation' and e['outcome'] == 'unavailable' for e in events)
+    assert 'private provider body' not in str(events)
+    await s.end()
+
+
+@pytest.mark.asyncio
+async def test_response_waits_for_pending_visual_evidence(session):
+    s, events = session
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    class SlowVision:
+        async def observe(self, frame):
+            entered.set()
+            await release.wait()
+            return 'New screen: Blue project, seven servers'
+    prompts = []
+    class Dialogue:
+        async def stream(self, messages):
+            prompts.append(messages)
+            yield 'Seven servers.'
+    s.vision, s.dialogue = SlowVision(), Dialogue()
+    await s.share(True)
+    await s.frame('new', 1)
+    await entered.wait()
+    await s.user_turn('What is on the screen?')
+    await asyncio.sleep(.02)
+    assert not prompts
+    release.set()
+    await s.vision_task
+    await s.reply_task
+    assert 'seven servers' in prompts[0][-1]['content']
+    await s.end()

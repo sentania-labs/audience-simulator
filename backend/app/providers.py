@@ -1,8 +1,10 @@
 """Independent provider contracts. No provider credentials leave this module."""
 import asyncio
+import base64
 import json
 import math
 import struct
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Protocol
 from urllib.parse import urlencode
@@ -38,13 +40,16 @@ def headers(ep: Endpoint):
 class ChatDialogue:
     def __init__(self, ep: Endpoint):
         self.ep = ep
+        self.budget = None
 
     async def stream(self, messages):
+        charge = self.budget.reserve('dialogue', len(json.dumps(messages).encode())+1024) if self.budget else None
         async with httpx.AsyncClient(timeout=30) as client:
             async with client.stream('POST', f'{self.ep.base}/chat/completions',
                                      headers=headers(self.ep), json={
                                          'model': self.ep.model, 'messages': messages,
                                          'stream': True, 'max_tokens': 300,
+                                         **({'stream_options': {'include_usage': True}} if self.ep.base == 'https://api.openai.com/v1' else {}),
                                      }) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -54,6 +59,8 @@ class ChatDialogue:
                     if data == '[DONE]':
                         break
                     payload = json.loads(data)
+                    if self.budget and payload.get('usage'):
+                        self.budget.settle_text(charge, payload['usage'])
                     choices = payload.get('choices', [])
                     if choices:
                         text = choices[0].get('delta', {}).get('content')
@@ -64,8 +71,10 @@ class ChatDialogue:
 class ImageVision:
     def __init__(self, ep: Endpoint):
         self.ep = ep
+        self.budget = None
 
     async def observe(self, jpeg):
+        charge = self.budget.reserve('vision') if self.budget else None
         async with httpx.AsyncClient(timeout=25) as client:
             response = await client.post(f'{self.ep.base}/chat/completions', headers=headers(self.ep), json={
                 'model': self.ep.model, 'max_tokens': 400,
@@ -79,14 +88,19 @@ class ImageVision:
                 ],
             })
             response.raise_for_status()
+            if self.budget:
+                self.budget.settle_text(charge, response.json().get('usage'))
             return response.json()['choices'][0]['message']['content'][:5000]
 
 
 class PCMSpeech:
     def __init__(self, ep: Endpoint, voice: str):
         self.ep, self.voice = ep, voice
+        self.budget = None
 
     async def stream(self, text):
+        if self.budget:
+            self.budget.reserve('tts', len(text.encode()))
         async with httpx.AsyncClient(timeout=30) as client:
             async with client.stream('POST', f'{self.ep.base}/audio/speech', headers=headers(self.ep), json={
                 'model': self.ep.model, 'voice': self.voice, 'input': text, 'response_format': 'pcm',
@@ -163,6 +177,93 @@ class DeepgramRecognition:
             await self.ws.close()
 
 
+class ElevenLabsRecognition:
+    """Scribe realtime recognition, independent of dialogue and speech synthesis."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.ws = None
+        self.tasks = []
+        self.rate = 48000
+        self.last_send = 0.0
+        self.closing = False
+
+    async def start(self, rate, callback):
+        if rate not in (8000, 16000, 22050, 24000, 44100, 48000):
+            raise ValueError('Recognition requires a supported PCM sample rate')
+        self.rate = rate
+        query = urlencode({'model_id': self.settings.stt_model, 'audio_format': f'pcm_{rate}',
+                           'commit_strategy': 'vad', 'vad_silence_threshold_secs': 0.5,
+                           'language_code': 'en'})
+        self.ws = await websockets.connect(self.settings.stt_url + '?' + query,
+                                          additional_headers={'xi-api-key': self.settings.stt_key},
+                                          open_timeout=10, close_timeout=5, max_size=1_000_000)
+        try:
+            event = json.loads(await asyncio.wait_for(self.ws.recv(), 10))
+            if event.get('message_type') != 'session_started':
+                raise ValueError('Recognition provider did not accept the session')
+        except BaseException:
+            await self.ws.close()
+            raise
+        self.last_send = time.monotonic()
+
+        async def read():
+            speaking = False
+            try:
+                async for raw in self.ws:
+                    event = json.loads(raw)
+                    kind = event.get('message_type', '')
+                    text = event.get('text', '')
+                    if kind == 'partial_transcript' and text:
+                        if not speaking:
+                            speaking = True
+                            await callback({'type': 'speech_started'})
+                        await callback({'type': 'partial', 'text': text})
+                    elif kind == 'committed_transcript':
+                        speaking = False
+                        if text.strip():
+                            await callback({'type': 'final', 'text': text})
+                    elif kind.endswith('_error') or kind in ('error', 'rate_limited', 'quota_exceeded'):
+                        await callback({'type': 'error'})
+                        return
+                if not self.closing:
+                    await callback({'type': 'error'})
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if not self.closing:
+                    await callback({'type': 'error'})
+
+        async def keepalive():
+            try:
+                while True:
+                    await asyncio.sleep(2)
+                    if time.monotonic() - self.last_send >= 5:
+                        # Synthetic silence maintains a muted connection; no microphone data.
+                        await self.send(b'\x00\x00' * (self.rate // 10))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if not self.closing:
+                    await callback({'type': 'error'})
+
+        self.tasks = [asyncio.create_task(read()), asyncio.create_task(keepalive())]
+
+    async def send(self, pcm):
+        await self.ws.send(json.dumps({'message_type': 'input_audio_chunk',
+                                      'audio_base_64': base64.b64encode(pcm).decode(),
+                                      'sample_rate': self.rate}))
+        self.last_send = time.monotonic()
+
+    async def close(self):
+        self.closing = True
+        for task in self.tasks:
+            task.cancel()
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+        if self.ws:
+            await self.ws.close()
+
+
 class MockDialogue:
     async def stream(self, messages):
         text = 'MOCK response. This is a test double, not a grounded AI answer.'
@@ -200,5 +301,6 @@ class MockRecognition:
 def adapters(settings):
     if settings.mock:
         return MockRecognition(), MockDialogue(), MockVision(), MockSpeech()
-    return (DeepgramRecognition(settings), ChatDialogue(settings.dialogue),
+    recognition = {'deepgram': DeepgramRecognition, 'elevenlabs': ElevenLabsRecognition}[settings.stt_provider]
+    return (recognition(settings), ChatDialogue(settings.dialogue),
             ImageVision(settings.vision), PCMSpeech(settings.tts, settings.voice))

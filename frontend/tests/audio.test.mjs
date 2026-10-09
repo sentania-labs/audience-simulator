@@ -9,7 +9,7 @@ class FakeNode {
   connect(target){return target;} disconnect(){} stop(){this.stopped=true;} start(time){this.startedAt=time;}
 }
 class FakeContext {
-  currentTime=1; sampleRate=48000; destination={}; audioWorklet={addModule:async()=>{}};
+  state='running'; currentTime=1; sampleRate=48000; destination={}; audioWorklet={addModule:async()=>{}};
   resume=async()=>{}; close=async()=>{};
   createGain(){return new FakeNode();} createMediaStreamSource(){return new FakeNode();}
   createBufferSource(){return new FakeNode();}
@@ -30,7 +30,7 @@ test('interrupt stops queued sources and rejects late chunks from cancelled resp
   assert(states.includes(false));
 });
 
-test('microphone mute disables track and prevents audio transmission; sustained speech barges in',async()=>{
+test('microphone mute disables track and prevents audio transmission; sustained energy reports activity without cancelling playback',async()=>{
   const events=[];const track={enabled:true,stop(){}};
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track],getTracks:()=>[track]})}}});
   globalThis.AudioContext=FakeContext;
@@ -45,10 +45,12 @@ test('microphone mute disables track and prevents audio transmission; sustained 
     audio.setMute(true);audio.node.port.onmessage(message);
     assert.equal(track.enabled,false);assert.equal(events.length,0);
     audio.setMute(false);audio.node.port.onmessage(message);now=250;audio.node.port.onmessage(message);
-    assert.equal(track.enabled,true);assert(events.some(e=>e.type==='interrupt'));
+    assert.equal(track.enabled,true);assert(events.some(e=>e.type==='speech_activity'));
+    assert(!events.some(e=>e.type==='interrupt'));
     now=900;audio.node.port.onmessage({data:{pcm:new ArrayBuffer(4),rms:0}});
     assert(events.some(e=>e.type==='speech_end'));
     audio.setOutputMute(true);assert.equal(audio.gain.gain.value,0);
+    assert(events.some(e=>e.type==='audio_state' && e.output_muted===true && e.gain===0 && e.context_state==='running'));
     await audio.close();
   } finally {Object.defineProperty(globalThis,'performance',{configurable:true,value:originalPerformance});}
 });

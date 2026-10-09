@@ -5,3 +5,4 @@ cd "$(dirname "$0")/.."
 .venv/bin/pytest -q
 node --test frontend/tests/*.test.mjs
 npm run build --prefix frontend
+scripts/scan.sh

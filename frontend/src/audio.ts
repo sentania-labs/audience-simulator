@@ -22,8 +22,9 @@ export class MeetingAudio {
 
   async open() {
     this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
-    this.ctx = new AudioContext();
+    this.ctx = new AudioContext({sampleRate: 48000});
     await this.ctx.resume();
+    this.ctx.onstatechange = () => this.reportState();
     await this.ctx.audioWorklet.addModule('/mic-worklet.js');
     this.gain = this.ctx.createGain();
     this.gain.connect(this.ctx.destination);
@@ -40,10 +41,7 @@ export class MeetingAudio {
         if (!this.voicedAt) this.voicedAt = now;
         if (!this.talking && now - this.voicedAt >= 120) {
           this.talking = true;
-          const began = performance.now();
-          this.stop();
-          this.send({type:'interrupt'});
-          this.send({type:'browser_metric',stage:'local_barge_in_stop',value_ms:performance.now()-began});
+          this.send({type:'speech_activity'});
         }
       } else {
         this.voicedAt = 0;
@@ -58,6 +56,11 @@ export class MeetingAudio {
     return this.ctx.sampleRate;
   }
 
+  reportState() {
+    this.send({type:'audio_state', context_state:this.ctx?.state ?? 'unavailable',
+      output_muted:this.outputMuted, gain:this.gain?.gain.value ?? 0, queued_sources:this.sources.size});
+  }
+
   setMute(value: boolean) {
     this.muted = value;
     this.stream?.getAudioTracks().forEach(t => {t.enabled = !value;});
@@ -70,6 +73,7 @@ export class MeetingAudio {
   setOutputMute(value: boolean) {
     this.outputMuted = value;
     if (this.gain) this.gain.gain.value = value ? 0 : 1;
+    this.reportState();
   }
 
   stop(nextId?: number) {
@@ -108,6 +112,7 @@ export class MeetingAudio {
     if (!this.firstAudio.has(rid)) {
       this.firstAudio.add(rid);
       const scheduledDelay = (when - this.ctx.currentTime) * 1000;
+      this.reportState();
       this.send({type:'playback_started',response_id:rid});
       if (this.lastSpeechEnd) this.send({type:'browser_metric',stage:'estimated_first_playback_after_silence',response_id:rid,
         value_ms:performance.now()-this.lastSpeechEnd+scheduledDelay});

@@ -9,3 +9,5 @@ frontend/dist/
 *.log
 
 *.tsbuildinfo
+data/
+.release/

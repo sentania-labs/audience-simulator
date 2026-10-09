@@ -13,7 +13,7 @@ Tradeoffs: browser energy VAD is approximate, TCP can stall, and separate calls 
 miss the 1 to 1.5 second target. Mock mode emits clearly labeled synthetic tones and
 fixed descriptions, never represents a functional audience.
 
-Defaults: Deepgram Listen v1 STT, configurable chat-completions SSE dialogue,
+Defaults: Deepgram Listen v1 STT (selectable ElevenLabs Scribe realtime adapter), configurable chat-completions SSE dialogue,
 chat-completions image input vision, HTTP /audio/speech PCM TTS. Only endpoints
 implementing those protocols work. Local Spark speech requires compatible services
 or another adapter; text compatibility is not audio compatibility.

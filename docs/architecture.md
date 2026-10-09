@@ -31,9 +31,27 @@ never system instructions. Models have no tools or privileged actions.
 
 Interruptions stop browser sources immediately, advance generation ID, cancel provider
 requests and reject stale audio. Echo cancellation and headphones are recommended.
-Browser energy detection provides fast barge-in; STT speech events provide backup.
+Browser energy and STT speech-start events report activity only. Recognized words
+confirm automatic interruption, with common acknowledgments excluded during playback.
+A continuation timer merges nearby finalized recognition segments. Explicit interrupt
+remains immediate. Optional Jev judgments run independently for observation only.
 
 No raw audio or frames are stored. Timeline and summary are browser/session memory
 only, with explicit JSON download. Disconnect destroys backend state. A single
 process serves frontend and WebSocket, behind localhost by default. Remote use needs
 HTTPS and an authenticated reverse proxy; this is not a multi-tenant service.
+
+## Peer preview distribution and controls
+
+Browser login gates meeting setup and the WebSocket. A separate admin cookie
+gates the statistics and admissions API. Each accepted connection owns an
+independent Session and one director for up to four attendees.
+
+Browser -> role gate -> admission transaction -> Session -> budget reservation
+-> independent provider adapters -> reconciliation -> SQLite on persistent volume.
+
+SQLite contains opaque login hashes, session metadata, and estimated charges.
+Transcript and visual content stay in connection memory. Compose and Helm both
+run one process with writable data storage and an otherwise read-only filesystem.
+CI builds and exercises the image and chart before registry publication. Argo
+consumes the published version; application CI does not deploy to the lab.

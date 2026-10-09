@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: audience-simulator
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sentania-labs/audience-simulator.git
+    targetRevision: main # Pin an exact release tag in your deployment repository.
+    path: charts/audience-simulator
+    helm:
+      valuesObject:
+        existingSecret: audience-simulator
+        image:
+          tag: latest # Pin the released image tag or digest.
+        ingress:
+          enabled: true
+          className: nginx
+          host: audience.example.invalid
+          tlsSecret: audience-tls
+        config:
+          ALLOWED_ORIGINS: https://audience.example.invalid
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: audience-simulator
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

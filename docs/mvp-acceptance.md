@@ -52,5 +52,49 @@ media exercised capture, PCM scheduling, share sampling, test turns, interruptio
 share stop, export and extractive summary. At 390 px, no horizontal page overflow
 was observed. This does not satisfy the PowerPoint/live VCF demonstration gate.
 
-Run `./scripts/acceptance.sh` for the real manual walkthrough. It correctly refuses
-the current mock configuration. No provider credentials were available.
+Run `./scripts/acceptance.sh` for the real manual walkthrough. It refuses mock configurations. Hosted credentials are now configured locally.
+
+Real-provider synthetic validation recognized microphone input in Chrome and
+scheduled spoken replies. Direct WebSocket checks grounded responses in the
+architecture and changed request fixtures, then recalled the earlier host count.
+This is partial feasibility evidence, not a passed acceptance checklist. See
+[benchmark evidence](benchmark-plan.md) for timings and outstanding reliability checks.
+
+## Next human retest: interruption and screen freshness
+
+- Refresh the page to load the new client and review the observer data-flow disclosure.
+- Stay silent while the greeting completes. Speech-start detections alone should
+  no longer cancel it. Compare `recognized_words` cancellations with actual speech.
+- While Morgan speaks, say "mm-hmm", then separately "Stop, let me clarify".
+  The acknowledgment should leave playback running; the deliberate interruption
+  should stop stale playback. Also verify the immediate Interrupt button.
+- Pause briefly in "Here is information about ... Deepgram". Expect one combined
+  turn rather than an answer to the unfinished phrase.
+- Switch shared windows and ask what is visible immediately. During processing,
+  Morgan should wait briefly or disclose that the changed view is pending.
+- End and export. Jev judgments are comparison evidence only, not the controller.
+
+Synthetic tests cannot establish performance with the presenter's room noise,
+physical speakers or echo path. Real completion of spoken replies remains a gate.
+
+## Peer preview release gates
+
+These supplement the original visual acceptance scenario.
+
+- Run scripts/check.sh after scripts/install-ci-tools.sh (add .release/tools to PATH).
+- Build the image and run scripts/smoke-container.sh IMAGE.
+- Run scripts/smoke-kind.sh IMAGE with Docker, kubectl, kind and Helm available.
+  It verifies login separation, multi-attendee audio/recap, admin access and PVC
+  restart persistence using mock providers and temporary generated passwords.
+- In the rendered browser, sign in as a meeting user, configure three attendees,
+  address one by name, hear output, end and inspect the recap.
+- Open /?admin. The meeting password cannot access statistics. Sign in with the
+  separate admin password, inspect the completed session, pause/resume admissions.
+- Test two browser meetings concurrently. Their conversation histories must differ.
+- Temporarily lower budgets in a test deployment. Verify an 80% warning and a
+  limit event followed by a recap, closed media capture and no further paid work.
+- Verify unknown endpoint/model pricing refuses admission without an explicit
+  cost schedule.
+- On external deployment, verify HTTPS, Secure cookies, Origin, WebSocket ingress
+  timeout, PVC backup and your chosen storage class. Local kind does not prove
+  those cluster-specific settings.

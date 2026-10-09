@@ -14,13 +14,14 @@ cleanup() {
 trap cleanup EXIT
 kind create cluster --name "$cluster" --wait 120s
 kind load docker-image "$image" --name "$cluster"
-export MEETING_PASSWORD ADMIN_PASSWORD
+export MEETING_PASSWORD ADMIN_PASSWORD METRICS_TOKEN
 MEETING_PASSWORD="$(openssl rand -hex 24)"
 ADMIN_PASSWORD="$(openssl rand -hex 24)"
+METRICS_TOKEN="$(openssl rand -hex 24)"
 python3 - <<'PY' | kubectl create -f -
 import os,json
 print(json.dumps(dict(apiVersion='v1',kind='Secret',metadata={'name':'audience-test'},
- stringData={key:os.environ[key] for key in ('MEETING_PASSWORD','ADMIN_PASSWORD')})))
+ stringData={key:os.environ[key] for key in ('MEETING_PASSWORD','ADMIN_PASSWORD','METRICS_TOKEN')})))
 PY
 helm install audience charts/audience-simulator --set existingSecret=audience-test   --set image.repository="${image%:*}" --set image.tag="${image##*:}"   --set config.PROVIDER_MODE=mock --set-string config.COOKIE_SECURE=false   --set-string config.ALLOWED_ORIGINS=http://localhost:8000 --wait --timeout 120s
 kubectl port-forward service/audience 18081:8000 >"$scratch/forward.log" 2>&1 &
@@ -46,5 +47,8 @@ import os,httpx
 with httpx.Client(base_url=os.environ['SMOKE_URL']) as c:
     assert c.post('/api/auth/admin/login',headers={'origin':'http://localhost:8000'},json={'password':os.environ['ADMIN_PASSWORD']}).status_code==200
     assert c.get('/api/admin').json()['meetings']
+    assert c.get('/api/admin/runtime').json()['revision'] == 1
+    assert c.get('/api/admin/feedback').json()['reviews'][0]['comment'] == 'Synthetic artifact smoke'
+    assert c.get('/metrics',headers={'Authorization':'Bearer '+os.environ['METRICS_TOKEN']}).status_code == 200
 print('PVC restart persistence passed.')
 PY

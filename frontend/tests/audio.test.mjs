@@ -79,3 +79,16 @@ test('concurrent teardown closes the audio context once and releases the microph
   assert.equal(audio.ctx,null);
   assert.equal(audio.stream,null);
 });
+
+test('late audio reports a playback underrun but new responses and muted output do not',()=>{
+  const events=[];const audio=new MeetingAudio(e=>events.push(e),()=>{});
+  audio.ctx=new FakeContext();audio.gain=new FakeNode();
+  audio.play(pcm,1);
+  audio.ctx.currentTime=3;
+  audio.play(pcm,1);
+  const gaps=events.filter(e=>e.stage==='playback_underrun');
+  assert.equal(gaps.length,1);assert(gaps[0].value_ms>1900);
+  audio.setOutputMute(true);audio.ctx.currentTime=5;audio.play(pcm,1);
+  audio.setOutputMute(false);audio.stop(2);audio.play(pcm,2);
+  assert.equal(events.filter(e=>e.stage==='playback_underrun').length,1);
+});

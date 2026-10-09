@@ -65,6 +65,7 @@ class Control:
     def db(self):
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
+        db.execute('PRAGMA secure_delete=ON')
         try:
             db.execute('BEGIN IMMEDIATE')
             yield db

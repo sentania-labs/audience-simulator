@@ -3,14 +3,20 @@ import {createRoot} from 'react-dom/client';
 import {MeetingAudio} from './audio';
 import {SharedScreen} from './screen';
 import './style.css';
+import {MeetingFeedback} from './feedback';
 import {Access, Admin, api} from './access';
 
 type Event = {type:string;t_ms?:number;[key:string]:unknown};
-type Config = {mode:string;missing:string[];providers:Record<string,string>;retention:string;limits:{max_attendees:number;meeting_usd:number;daily_usd:number;max_minutes:number}};
-const defaultPersona = {name:'Morgan',role:'Enterprise infrastructure architect',expertise:'VCF, networking, virtualization and platform operations',style:'Technically precise, curious and candid',objective:''};
+type Config = {consent_revision:string;revision:number;mode:string;missing:string[];providers:Record<string,string>;retention:string;limits:{max_attendees:number;meeting_usd:number;daily_usd:number;max_minutes:number}};
+type CastPerson={id:string;name:string;role:string;expertise:string;style:string;objective:string;history:string};
+type Scenario={id:string;name:string;background:string;fiction_notice:string;source:string;cast:CastPerson[]};
+const defaultPersona = {cast_id:'',name:'Morgan',role:'Enterprise infrastructure architect',expertise:'Networking, recovery, virtualization and platform operations',style:'Technically precise, curious and candid',objective:''};
 const stamp = (ms: unknown) => {const seconds=Math.floor(Number(ms||0)/1000);return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;};
 
 function App() {
+  const [scenarios,setScenarios]=useState<Scenario[]>([]),[scenarioId,setScenarioId]=useState('');
+  const [reviewAccess,setReviewAccess]=useState({sid:'',token:''});
+  const scenario=scenarios.find(s=>s.id===scenarioId);
   const [config,setConfig]=useState<Config|null>(null);
   const [attendees,setAttendees]=useState([defaultPersona]);
   const [selected,setSelected]=useState(0);
@@ -20,7 +26,8 @@ function App() {
   const [login,setLogin]=useState(false);
   const [speaker,setSpeaker]=useState('Morgan');
   const [usage,setUsage]=useState({meeting_usd:0,daily_usd:0,warning:false});
-  function loadConfig(){api('/api/config').then(c=>{setConfig(c);setLogin(false);}).catch(()=>setLogin(true));}
+  const initialized=useRef(false);
+  function loadConfig(){return api('/api/config').then(c=>{setConfig(c);setLogin(false);void api('/api/scenarios').then((list:Scenario[])=>{setScenarios(list);if(!initialized.current&&list.length){initialized.current=true;const first=list[0],p=first.cast[0];setScenarioId(first.id);setAttendees([{cast_id:p.id,name:p.name,role:p.role,expertise:p.expertise,style:p.style,objective:p.objective}]);}});}).catch(()=>setLogin(true));}
   const [consent,setConsent]=useState(false);
   const [status,setStatus]=useState('Ready to rehearse');
   const [joined,setJoined]=useState(false);
@@ -55,7 +62,7 @@ function App() {
   }
   async function join() {
     if(connecting||joined)return;
-    setConnecting(true);setEvents([]);setEnded(false);endedRef.current=false;base.current=0;
+    setConnecting(true);setEvents([]);setReviewAccess({sid:'',token:''});setEnded(false);endedRef.current=false;base.current=0;
     endingRef.current=false;
     setStatus('Opening microphone');
     let failure='';
@@ -78,7 +85,7 @@ function App() {
       socket.onopen=()=>{
         if(ws.current!==socket){socket.close();return;}
         stage='setup';setStatus('Connecting speech providers');clearTimeout(timer);timer=setTimeout(timeout,20000);
-        send({type:'join',attendees,background,consent,sample_rate:sampleRate});
+        send({type:'join',consent_revision:config?.consent_revision,configuration_revision:config?.revision,attendees,background,scenario_id:scenarioId,consent,sample_rate:sampleRate});
       };
       socket.onmessage=({data})=>{
         if(ws.current!==socket)return;
@@ -92,6 +99,8 @@ function App() {
         if(e.type==='cancel'){audio.current?.stop(Number(e.next_id));setSpokenText('');}
         if(e.type==='response_done')audio.current?.done(Number(e.response_id));
         if(e.type==='joined'){
+          setReviewAccess({sid:String(e.session_id),token:String(e.review_token||'')});
+          delete e.review_token;
           clearTimeout(timer);stage='meeting';
           audio.current?.reportState();
           base.current=performance.now()-Number(e.t_ms);setSpeaker(attendees[0].name);setJoined(true);setConnecting(false);setStatus('Meeting live');
@@ -147,6 +156,7 @@ function App() {
     stopShare(false);await audio.current?.close();audio.current=null;
     setJoined(false);setEnded(false);setConnecting(false);setSpeaking(false);setPartial('');setSpokenText('');
     setTab('Transcript');setStatus('Ready for a new meeting. Your previous review is available below.');
+    setConsent(false);setConfig(null);await loadConfig();
   }
   const observations=events.filter(e=>e.type==='observation');
   const summary=events.findLast(e=>e.type==='summary');
@@ -162,10 +172,11 @@ function App() {
           <div className="notice"><strong>{config?.mode==='mock'?'Mock wiring mode':'Provider data flow'}</strong><p>{config?.mode==='mock'?'Test tones and fixed observations only. This mode does not recognize speech or understand screens.':`Microphone audio → ${config?.providers.stt||'STT'}; transcript and observations → ${config?.providers.dialogue||'dialogue'}; sampled images → ${config?.providers.vision||'vision'}; reply text → ${config?.providers.tts||'TTS'}.${config?.providers.judge ? ` Conversation excerpts → ${config.providers.judge} for observation-only evaluation.` : ''}`}</p><p>{config?.retention} Provider-side retention follows your provider agreements.</p></div>
         </div>
         <form onSubmit={e=>{e.preventDefault();void join();}} className="config"><p className="eyebrow">MEET YOUR PARTICIPANT</p><h2>Set the conversation</h2>
-          <label>Attendees<select value={attendees.length} onChange={e=>{const count=Number(e.target.value);setAttendees(a=>Array.from({length:count},(_,i)=>a[i]||{...defaultPersona,name:['Morgan','Riley','Casey','Jordan'][i],role:['Enterprise infrastructure architect','Platform operator','Engineering leader','Curious colleague'][i]}));setSelected(0);}}>{Array.from({length:config?.limits.max_attendees||4},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label>
+          <label>Business scenario<select disabled={connecting} value={scenarioId} onChange={e=>{setScenarioId(e.target.value);setSelected(0);const next=scenarios.find(s=>s.id===e.target.value);if(next){const p=next.cast[0];setAttendees([{cast_id:p.id,name:p.name,role:p.role,expertise:p.expertise,style:p.style,objective:p.objective}]);}else setAttendees([defaultPersona]);}}><option value="">Custom meeting</option>{scenarios.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>{scenario&&<div className="notice"><p>{scenario.background}</p><p>{scenario.fiction_notice} <a href={scenario.source} target="_blank" rel="noopener noreferrer">Industry source</a></p></div>}
+          <label>Attendees<select value={attendees.length} onChange={e=>{const count=Number(e.target.value);setAttendees(a=>{const next=a.slice(0,count);while(next.length<count){const i=next.length,p=scenario?.cast.find(p=>!next.some(v=>v.cast_id===p.id));next.push(p?{cast_id:p.id,name:p.name,role:p.role,expertise:p.expertise,style:p.style,objective:p.objective}:{...defaultPersona,name:['Morgan','Riley','Casey','Jordan'][i],role:['Infrastructure architect','Platform operator','Engineering leader','Curious colleague'][i]});}return next;});setSelected(0);}}>{Array.from({length:config?.limits.max_attendees||4},(_,i)=><option key={i} value={i+1}>{i+1}</option>)}</select></label>
           <nav>{attendees.map((a,i)=><button type="button" className={i===selected?'selected':''} key={i} onClick={()=>setSelected(i)}>{a.name||'Attendee'}</button>)}</nav>
-          <label>Baseline<select onChange={e=>{const presets=[defaultPersona,{...defaultPersona,role:'Platform operator',expertise:'Day-to-day operations, recovery and maintenance',style:'Practical and direct'},{...defaultPersona,role:'Engineering leader',expertise:'Business outcomes, delivery risk and investment',style:'Concise and outcome focused'}];setPersona({...presets[Number(e.target.value)],name:persona.name});}}><option value="0">Infrastructure architect</option><option value="1">Platform operator</option><option value="2">Engineering leader</option></select></label>
-          {Object.entries(persona).map(([key,value])=><label key={key}>{({name:'Name',role:'Role',expertise:'Expertise',style:'Conversational style',objective:'Meeting objective (optional)'} as Record<string,string>)[key]}<input value={value} maxLength={key==='name'?80: key==='objective'?1000:300} onChange={e=>setPersona({...persona,[key]:e.target.value})}/></label>)}
+          {scenario?<label>Cast member<select value={persona.cast_id} onChange={e=>{const p=scenario.cast.find(p=>p.id===e.target.value)!;setPersona({cast_id:p.id,name:p.name,role:p.role,expertise:p.expertise,style:p.style,objective:p.objective});}}>{scenario.cast.map(p=><option key={p.id} value={p.id} disabled={attendees.some((a,i)=>i!==selected&&a.cast_id===p.id)}>{p.name} · {p.role}</option>)}</select><p className="hint">{scenario.cast.find(p=>p.id===persona.cast_id)?.history}</p></label>:<label>Baseline<select onChange={e=>{const presets=[defaultPersona,{...defaultPersona,role:'Platform operator',expertise:'Day-to-day operations, recovery and maintenance',style:'Practical and direct'},{...defaultPersona,role:'Engineering leader',expertise:'Business outcomes, delivery risk and investment',style:'Concise and outcome focused'}];setPersona({...presets[Number(e.target.value)],name:persona.name});}}><option value="0">Infrastructure architect</option><option value="1">Platform operator</option><option value="2">Engineering leader</option></select></label>}
+          {scenario?<div className="notice"><strong>{persona.role}</strong><p>{persona.objective}</p><details><summary>Expertise and style</summary><p>{persona.expertise}</p><p>{persona.style}</p></details></div>:Object.entries(persona).filter(([key])=>key!=='cast_id').map(([key,value])=><label key={key}>{({name:'Name',role:'Role',expertise:'Expertise',style:'Conversational style',objective:'Meeting objective (optional)'} as Record<string,string>)[key]}<input readOnly={!!persona.cast_id} value={value} maxLength={key==='name'?80: key==='objective'?1000:300} onChange={e=>setPersona({...persona,[key]:e.target.value})}/></label>)}
           <label>Meeting background<textarea maxLength={4000} value={background} onChange={e=>setBackground(e.target.value)} placeholder="What should the audience know before you begin?"/></label>
           <p className="hint">Up to {config?.limits.max_minutes} minutes. Estimated spending allowance: ${config?.limits.meeting_usd.toFixed(2)} per meeting. Address someone by name to choose who replies; otherwise attendees take turns.</p>
           <label className="check"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I permit the configured providers to process audio, text, and explicitly shared screen samples.</span></label>
@@ -194,6 +205,7 @@ function App() {
           </div><footer><span>{events.length} timeline events</span><button onClick={()=>download()}>Download session</button></footer>
         </aside>
       </div>}
+      {ended&&reviewAccess.token&&<MeetingFeedback key={reviewAccess.sid} sid={reviewAccess.sid} token={reviewAccess.token} lines={events.filter(e=>e.type==='transcript').map(e=>({speaker:String(e.speaker),text:String(e.text),t_ms:Number(e.t_ms||0),final:Boolean(e.final)}))}/>}
     </main><div className="bottom"><span>Audience Simulator · Peer preview</span><span>Your audience. Your voice. Shared context.</span></div>
   </div>;
 }

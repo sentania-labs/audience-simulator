@@ -26,6 +26,8 @@ def provider_failure(error):
 
 
 def record(session_id, event, transcript=False):
+    from .metrics import observe
+    observe(event)
     row = {'time_local': datetime.now(ZoneInfo('America/Chicago')).strftime('%Y-%m-%d %H:%M:%S %Z'),
            'session_id': session_id, 'event': event['type']}
     # Never serialize arbitrary event fields or exception/provider payloads.

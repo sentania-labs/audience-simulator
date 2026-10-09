@@ -25,7 +25,7 @@ def test_no_secret_in_config(client, monkeypatch):
 
 def test_consent_required(client):
     with client.websocket_connect('/api/meeting', headers={'origin': 'http://localhost:8000'}) as ws:
-        ws.send_json({'type': 'join', 'consent': False, 'sample_rate': 48000})
+        ws.send_json({'type': 'join', 'consent_revision':client.get('/api/config').json()['consent_revision'], 'consent': False, 'sample_rate': 48000})
         assert ws.receive_json()['stage'] == 'join'
 
 
@@ -38,7 +38,7 @@ def test_origin_rejected(client):
 
 def test_websocket_meeting_end_to_end(client):
     with client.websocket_connect('/api/meeting', headers={'origin': 'http://localhost:8000'}) as ws:
-        ws.send_json({'type': 'join', 'consent': True, 'sample_rate': 48000, 'persona': {'name': 'Morgan'}})
+        ws.send_json({'type': 'join', 'consent_revision':client.get('/api/config').json()['consent_revision'], 'consent': True, 'sample_rate': 48000, 'persona': {'name': 'Morgan'}})
         assert ws.receive_json()['type'] == 'joined'
         ws.send_bytes(b'\x00\x00' * 2048)
         ws.send_json({'type': 'mock_turn', 'text': 'Describe the screen.'})
@@ -59,7 +59,7 @@ def test_websocket_meeting_end_to_end(client):
 
 def test_bad_frame_rejected(client):
     with client.websocket_connect('/api/meeting', headers={'origin': 'http://localhost:8000'}) as ws:
-        ws.send_json({'type':'join','consent':True,'sample_rate':48000})
+        ws.send_json({'type':'join', 'consent_revision':client.get('/api/config').json()['consent_revision'],'consent':True,'sample_rate':48000})
         assert ws.receive_json()['type'] == 'joined'
         ws.send_json({'type':'frame','jpeg':'not an image','captured_ms':0})
         while True:
@@ -86,10 +86,10 @@ def test_auth_enforcement_and_separate_admin(client):
 def test_two_meetings_are_isolated_and_named_speaker(client):
     headers={'origin':'http://localhost:8000'}
     with client.websocket_connect('/api/meeting',headers=headers) as first:
-        first.send_json(dict(type='join',consent=True,sample_rate=48000,attendees=[{'name':'Morgan'},{'name':'Riley'}]))
+        first.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000,attendees=[{'name':'Morgan'},{'name':'Riley'}]))
         a=first.receive_json()
         with client.websocket_connect('/api/meeting',headers=headers) as second:
-            second.send_json(dict(type='join',consent=True,sample_rate=48000))
+            second.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000))
             b=second.receive_json()
             assert a['session_id'] != b['session_id']
             first.send_json(dict(type='mock_turn',text='Riley, discuss the secret cedar plan'))
@@ -111,7 +111,7 @@ def test_time_limit_ends_cleanly_with_summary(client, monkeypatch):
     from app.main import control
     control().max_seconds=.1
     with client.websocket_connect('/api/meeting',headers={'origin':'http://localhost:8000'}) as ws:
-        ws.send_json(dict(type='join',consent=True,sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000))
         events=[]
         while not any(e['type']=='summary' for e in events):
             events.append(ws.receive_json())
@@ -137,7 +137,7 @@ def test_budget_cutoff_stops_before_paid_dialogue_and_preserves_recap(client, mo
     main.control().meeting_limit=10_000
     monkeypatch.setattr(main,'adapters',lambda settings:(MockRecognition(),dialogue,MockVision(),MockSpeech()))
     with client.websocket_connect('/api/meeting',headers={'origin':'http://localhost:8000'}) as ws:
-        ws.send_json(dict(type='join',consent=True,sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000))
         events=[]
         while not any(e['type']=='summary' for e in events):
             events.append(ws.receive_json())
@@ -157,7 +157,7 @@ def test_initial_stt_reservation_cutoff_has_single_shutdown(client, monkeypatch)
     main.control().meeting_limit=1
     monkeypatch.setattr(main,'adapters',lambda settings:(MockRecognition(),MockDialogue(),MockVision(),MockSpeech()))
     with client.websocket_connect('/api/meeting',headers={'origin':'http://localhost:8000'}) as ws:
-        ws.send_json(dict(type='join',consent=True,sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000))
         events=[]
         while not any(e['type']=='summary' for e in events):
             events.append(ws.receive_json())
@@ -179,7 +179,7 @@ def test_first_attendee_voice_is_used_for_greeting(client, monkeypatch):
     monkeypatch.setenv('TTS_VOICES',' coral , ash ')
     monkeypatch.setattr(main,'adapters',lambda settings:(MockRecognition(),MockDialogue(),MockVision(),speech))
     with client.websocket_connect('/api/meeting',headers={'origin':'http://localhost:8000'}) as ws:
-        ws.send_json(dict(type='join',consent=True,sample_rate=48000,attendees=[{'name':'Morgan'},{'name':'Riley'}]))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000,attendees=[{'name':'Morgan'},{'name':'Riley'}]))
         while ws.receive_json()['type']!='response_done':
             pass
         assert speech.used and set(speech.used)=={'coral'}
@@ -190,7 +190,7 @@ def test_first_attendee_voice_is_used_for_greeting(client, monkeypatch):
 
 def test_interrupt_then_silence_allows_visual_followup(client):
     with client.websocket_connect('/api/meeting',headers={'origin':'http://localhost:8000'}) as ws:
-        ws.send_json(dict(type='join',consent=True,sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'],consent=True,sample_rate=48000))
         assert ws.receive_json()['type']=='joined'
         ws.send_json(dict(type='interrupt'))
         ws.send_json(dict(type='speech_end'))

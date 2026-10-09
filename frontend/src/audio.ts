@@ -98,6 +98,9 @@ export class MeetingAudio {
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < channel.length; i++) channel[i] = samples.getInt16(i*2,true) / 32768;
     const source = this.ctx.createBufferSource(); source.buffer = buffer; source.connect(this.gain);
+    if (this.firstAudio.has(rid) && this.nextTime > 0 && this.ctx.currentTime > this.nextTime + .02 && !this.outputMuted && this.ctx.state === 'running') {
+      this.send({type:'browser_metric', stage:'playback_underrun', response_id:rid, value_ms:(this.ctx.currentTime-this.nextTime)*1000});
+    }
     const when = Math.max(this.ctx.currentTime + .04, this.nextTime);
     this.nextTime = when + buffer.duration;
     this.sources.add(source);

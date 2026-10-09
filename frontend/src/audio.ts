@@ -101,7 +101,10 @@ export class MeetingAudio {
     if (this.firstAudio.has(rid) && this.nextTime > 0 && this.ctx.currentTime > this.nextTime + .02 && !this.outputMuted && this.ctx.state === 'running') {
       this.send({type:'browser_metric', stage:'playback_underrun', response_id:rid, value_ms:(this.ctx.currentTime-this.nextTime)*1000});
     }
-    const when = Math.max(this.ctx.currentTime + .04, this.nextTime);
+    // A small initial cushion absorbs short provider/network bursts. Subsequent
+    // chunks remain contiguous; this does not add a delay per chunk.
+    const lead = this.firstAudio.has(rid) ? .04 : .20;
+    const when = Math.max(this.ctx.currentTime + lead, this.nextTime);
     this.nextTime = when + buffer.duration;
     this.sources.add(source);
     source.onended = () => {

@@ -32,6 +32,8 @@ config:
   MAX_ATTENDEES: "4"
   MAX_MEETING_MINUTES: "30"
   IDLE_TIMEOUT_MINUTES: "5"
+  # Legacy seeds preserve existing installations until an admin revision is saved.
+  # Saved app settings take precedence; provider API keys belong in the app UI.
   STT_PROVIDER: deepgram
   STT_MODEL: nova-3
   DIALOGUE_MODEL: gpt-4.1-mini
@@ -39,4 +41,5 @@ config:
   TTS_MODEL: gpt-4o-mini-tts
   TTS_VOICE: coral
   TTS_VOICES: coral,ash,sage,echo
+  # existingSecret carries access passwords, METRICS_TOKEN and PROVIDER_ENCRYPTION_KEY.
   JEV_SHADOW: "false"

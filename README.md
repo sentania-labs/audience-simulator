@@ -37,10 +37,10 @@ The bundle pulls the exact published digest. A source checkout supports --build 
 
 ## Real provider configuration
 
-Copy `.env.example` to `.env` only if you do not already have a `.env` file. Fill
-server-side keys, supported model identifiers and endpoint URLs. Never paste keys
-into the browser, a command-line argument, issue or screenshot. The frontend only
-shows endpoint hostnames. Models and approved provider connections are administrator choices, not meeting-user choices. Deployment values seed the initial configuration; saved admin revisions take precedence for new meetings.
+Copy `.env.example` to `.env` only if you do not already have a `.env` file. Configure access passwords, a stable `PROVIDER_ENCRYPTION_KEY`, and
+`PROVIDER_MODE=hosted`. Use authenticated Admin to add provider keys, verify
+connections and select models. Keys are encrypted in the app database. Never put
+keys in a command-line argument, issue or screenshot. Models and approved provider connections are administrator choices, not meeting-user choices. Deployment values seed the initial configuration; saved admin revisions take precedence for new meetings.
 
 ```sh
 npm run build --prefix frontend
@@ -48,12 +48,13 @@ npm run build --prefix frontend
 ```
 
 `PROVIDER_MODE=hosted` selects actual providers. The name denotes the initial profile,
-not a guarantee all configured endpoints are external. It requires:
+not a guarantee all configured endpoints are external. The following environment
+settings remain supported as legacy seeds; new connections are managed in Admin:
 
 | Component | Contract | Configuration |
 | --- | --- | --- |
 | STT | Deepgram Listen v1 or ElevenLabs Scribe realtime WebSocket, mono PCM16, interim/final recognition | `STT_PROVIDER`, `STT_URL`, `STT_MODEL`, `STT_API_KEY` |
-| Dialogue | `/chat/completions` SSE `choices[].delta.content`, `max_tokens` | `DIALOGUE_BASE_URL`, `DIALOGUE_MODEL`, `DIALOGUE_API_KEY` |
+| Dialogue | OpenAI-compatible chat streaming, native Anthropic Messages, or Gemini compatibility API | `DIALOGUE_BASE_URL`, `DIALOGUE_MODEL`, `DIALOGUE_API_KEY` |
 | Vision | `/chat/completions` image URL input, text observations | `VISION_BASE_URL`, `VISION_MODEL`, `VISION_API_KEY` |
 | TTS | `/audio/speech`, streamed raw signed PCM16 little-endian mono 24 kHz | `TTS_BASE_URL`, `TTS_MODEL`, `TTS_API_KEY`, `TTS_VOICE` |
 
@@ -61,12 +62,12 @@ The initial verified profile uses Deepgram `nova-3`, OpenAI `gpt-4.1-mini` for
 dialogue and vision, and `gpt-4o-mini-tts` with voice `coral`. Set
 `STT_PROVIDER=elevenlabs` to select Scribe; leave `STT_URL` and `STT_MODEL` blank
 to use provider defaults, and supply that provider's key. Browser capture uses
-48 kHz PCM. Deepgram and ElevenLabs are separate services. Native Anthropic
-and other local speech protocols need additional independent adapters.
+48 kHz PCM. Deepgram and ElevenLabs are separate services. Other local speech
+protocols need additional independent adapters.
 
-Keys can be omitted on local dialogue/vision/TTS endpoints that need no authentication.
-Provider readiness checks required configuration, not account authorization or model
-availability. Unsupported streaming, image input or PCM formats require another
+Legacy local dialogue/vision/TTS endpoints may omit keys when unauthenticated.
+New compatible connections in Admin require a URL and key. Discovery confirms
+that a connection advertises a model, not every modality or available quota. Unsupported streaming, image input or PCM formats require another
 adapter. An OpenAI-compatible text endpoint alone does not provide realtime audio.
 See verified protocol references: [speech](https://developers.openai.com/api/docs/guides/text-to-speech),
 [chat](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
@@ -84,8 +85,10 @@ example. The published image is linux/amd64. No provider keys or passwords are
 included. Defaults in this source tree track latest; pin the release digest in
 your deployment repository.
 
-For Kubernetes, generate new provider keys and two distinct passwords, seal them
-in your deployment repository, and create the Secret named by existingSecret.
+For Kubernetes, generate two distinct passwords, a metrics token and a stable
+`PROVIDER_ENCRYPTION_KEY` (Fernet key), seal them in your deployment repository,
+and create the Secret named by existingSecret. Provider API keys are entered
+through the authenticated admin UI and encrypted in the persistent app database.
 See deploy/secret.example.yaml for key names. Do not put credentials in Helm
 values. Install the bundled chart with values-release.yaml plus your site values,
 or pin the supplied Argo Application to the release tag.
@@ -302,31 +305,47 @@ provider objects, prices and revision. Join consent includes a fingerprint of re
 `APP_VERSION` may identify the release; otherwise a source/asset fingerprint is used.
 Configuration and history persist on the existing SQLite volume.
 
-Supported choices are dialogue/vision models using the existing chat-completions
-contract, PCM speech models and voices, and Deepgram/ElevenLabs recognition models.
-No additional native provider protocols are implied. A connection check verifies
-advertised model IDs and a recognition handshake; a practice meeting must still
-verify model capabilities and speech quality. It does not save settings. Pricing
-ceilings must be supplied for admin configurations; spending and time limits remain
-deployment-owned. Configuration save validates structure and pricing, not availability.
+Admin has Overview, Models and providers, and Feedback sections. Provider settings
+have Providers, Models, Voices, Cost and History tabs.
 
-Deployment-owned `PROVIDER_CONNECTIONS_JSON` can add named connections per stage:
+Add named OpenAI, Anthropic, Gemini, OpenAI-compatible/local, Deepgram or ElevenLabs
+connections on Providers. Compatible connections require an API base URL and key.
+Verification uses key-authenticated model discovery, or a short realtime recognition
+handshake for the supported Deepgram nova-3 / ElevenLabs scribe_v2_realtime adapter.
+Only verified connections appear as new choices on Models. Catalog entries are
+advertised candidates, not proof of quota or all modality support. Run a practice
+meeting after changing settings. Native Anthropic Messages and Google's OpenAI
+compatibility API support dialogue and vision; speech output uses the OpenAI PCM
+interface. Recognition is currently Deepgram or ElevenLabs, not OpenAI Realtime.
 
-```json
-{"dialogue":{"secondary":{"base":"https://provider.example.invalid/v1","key_env":"SECONDARY_DIALOGUE_KEY"}},"stt":{"alternate":{"base":"wss://api.elevenlabs.io/v1/speech-to-text/realtime","key_env":"ELEVENLABS_KEY","provider":"elevenlabs"}}}
-```
+OpenAI built-in voices are populated from the documented model-specific list;
+compatible speech servers retain manual voice identifiers. Cost provides official
+provider pricing links and billing units. Set conservative ceilings explicitly;
+model discovery does not expose your contracted billing rates. Spending and time
+limits remain deployment-owned. GPT-6 Luna/Sol use max_completion_tokens and no
+reasoning for short spoken replies, keeping their small token budget for speech.
 
-Supply the referenced key variables through the existing Kubernetes Secret (or
-explicit Compose environment entries). Never put a key into this JSON. The browser
-receives only connection names. The built-in `deployment` connection uses existing
-stage environment variables, preserving unauthenticated local text/vision/speech endpoints. Extra local connections may explicitly set `allow_anonymous: true`; recognition always requires a key. Arbitrary URLs and credentials cannot be entered in
-the admin UI. Keep connection definitions stable while older revisions reference them;
-rollback restores choices, not deleted/rotated deployment secrets.
+Set `PROVIDER_ENCRYPTION_KEY` before saving provider keys. Generate it outside the
+repository with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+Keep that key stable in the deployment Secret and back it up separately from the
+SQLite volume. Losing it makes stored provider keys unusable. Keys never appear in
+API responses, snapshots, exports, logs or configuration history. Admins may add
+local URLs; the admin password grants authority to connect the app to those hosts.
+Do not expose admin access to meeting users. Redirects are not followed.
 
-The setup screen offers 24 authored fictional colleagues across banking,
-manufacturing, energy and transportation, with up to four in a meeting. Public
-filings provide industry context only; the people and incidents are invented.
-Each has a fixed history and objective. Custom meetings remain available. Brief
-rapport is encouraged, tangents should return to business purpose, and speaker
-labels are removed before speech synthesis. These are behavioral instructions,
-not a guarantee about every model response.
+Existing environment connections and `PROVIDER_CONNECTIONS_JSON` remain supported
+for upgrades. To migrate: add/verify app connections, select their models and voices,
+review costs, save a runtime revision, and test a meeting. Only then remove legacy
+provider keys from the deployment Secret through its normal pipeline. Existing
+meetings retain their starting objects. To rotate an app key, add a replacement
+connection and save a new revision. Old connections remain for rollback; revoked
+keys cannot be restored by rolling back settings. Backups contain encrypted keys
+and optionally submitted feedback, and require your own retention controls.
+
+The setup screen now draws from six general IT colleagues: CIO, CISO, applications
+director, platform operator, systems administrator and infrastructure engineer.
+The initial participant and added participants are randomly selected without
+repetition, with up to four in a meeting. Choose members or supply custom meeting
+context; there are no industry scenarios or invented personal histories. Brief
+rapport is encouraged and speaker labels are removed before synthesis. These are
+behavioral instructions, not a guarantee about every model response.

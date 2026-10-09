@@ -1,20 +1,13 @@
-A peer preview for private presentation practice, with spoken replies and
-shared-screen context.
+A simpler audience and provider setup for collecting useful meeting feedback.
 
-- Separate meeting and admin passwords with expiring cookies.
-- Independent meetings, one to four configurable attendees and consistent voices.
-- Shared background context, baseline presets and one speaker at a time.
-- Durable estimated spending limits: $1.50 per meeting and $10 per Chicago day.
-- Three concurrent meetings, time/idle limits and an admin admissions pause.
-- Admin statistics without storing conversation content or raw media.
-- Helm chart, Argo example and Docker Compose in the release bundle.
+- Six general IT colleagues replace the industry scenarios and detailed backstories.
+- Admin tabs separate overview, feedback, providers, models, voices, costs and history.
+- Add and verify multiple OpenAI, Anthropic, Gemini, compatible/local, Deepgram or ElevenLabs connections. Select advertised models from the verified connection.
+- Provider API keys are encrypted in the app database. Helm keeps only access credentials, the metrics token and the stable provider encryption key. Legacy environment connections remain available during migration.
+- OpenAI voice choices follow the speech model's documented built-in voices. Compatible servers support manual identifiers. Pricing references explain billing units alongside explicit spending ceilings.
+- GPT-6 Luna request compatibility is fixed. Provider rejection, authentication, quota and timeout messages are now distinct.
+- A 200 ms initial playback cushion addresses short arrival gaps without adding a delay per chunk. Longer provider stalls remain under investigation in #2.
 
-Download the release bundle for the exact image digest and matching deployment
-files. Generate credentials outside this repository and reference an existing
-Kubernetes Secret. The image contains no credentials.
+Upgrade: add PROVIDER_ENCRYPTION_KEY (a Fernet key) to the existing Secret through your deployment pipeline. Keep it stable and backed up separately. Enter provider keys in Admin, verify them, select models/voices, review costs and save. Keep legacy keys until the new configuration passes a practice meeting. No deployment changes are made by this release.
 
-This is an amd64, single-replica preview. Upgrades interrupt active meetings, so
-pause admissions and drain first. Spending is a conservative estimate, not an
-invoice guarantee. Native Anthropic and additional local speech adapters,
-advanced persona dynamics and coaching remain future work. The exact full
-PowerPoint-to-VCF-Automation acceptance scenario remains a manual validation gate.
+Still an amd64, single-replica peer preview. Pause admissions and drain before upgrading. Model discovery does not guarantee modality support, available quota or speech quality. Anthropic and Gemini provide dialogue/vision here; speech output uses the OpenAI PCM contract, and recognition uses Deepgram or ElevenLabs. Jev remains an optional advisory observer.

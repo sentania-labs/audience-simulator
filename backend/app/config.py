@@ -7,6 +7,7 @@ class Endpoint:
     base: str
     model: str
     key: str
+    protocol: str = "compatible"
 
     @classmethod
     def load(cls, prefix: str):

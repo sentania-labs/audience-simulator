@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import Settings
@@ -41,6 +43,13 @@ async def lifespan(app):
 app = FastAPI(title='Audience Simulator', lifespan=lifespan)
 from .management import router, settings as runtime_settings, store as review_store
 app.include_router(router)
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request, exc):
+    # Validation errors must not echo password/key inputs back into clients.
+    return JSONResponse(status_code=422, content={'detail': 'Invalid request. Check the fields and try again.'})
+
 
 
 @lru_cache(maxsize=4)
@@ -171,7 +180,11 @@ def config(request: Request):
 
 @app.get('/healthz')
 def health():
-    return {'status': 'ok', 'provider_ready': not Settings().missing()}
+    try:
+        ready = not runtime_settings().missing()
+    except (ValueError, KeyError, TypeError):
+        ready = False
+    return {'status': 'ok', 'provider_ready': ready}
 
 
 @app.websocket('/api/meeting')

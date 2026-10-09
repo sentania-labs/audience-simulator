@@ -50,3 +50,18 @@ def record(session_id, event, transcript=False):
         if transcript:
             row['text'] = event.get('text', '')[:4000]
     logger.info(json.dumps(row, ensure_ascii=True))
+
+
+def provider_message(error):
+    """User-actionable categories, without upstream bodies or credentials."""
+    if isinstance(error, httpx.HTTPStatusError):
+        code = error.response.status_code
+        if code in (400, 404, 422):
+            return 'The provider rejected this model or request format. Ask the administrator to check model compatibility.'
+        if code in (401, 403):
+            return 'The provider rejected access. Ask the administrator to verify the connection key and model access.'
+        if code == 429:
+            return 'The provider rate or quota limit was reached. Wait before trying again, or ask the administrator to check the account.'
+    if isinstance(error, (httpx.TimeoutException, TimeoutError)):
+        return 'The response provider timed out. Try another turn.'
+    return 'The response provider failed. Try another turn.'

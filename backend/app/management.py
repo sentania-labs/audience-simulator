@@ -1,12 +1,13 @@
 """Authenticated opt-in review and runtime administration routes."""
 import asyncio
+import json
 import secrets
 import os
 import httpx
 from fastapi import APIRouter, Request, HTTPException, Response
 from pydantic import BaseModel, Field, ConfigDict
 from . import runtime
-from .providers import headers as provider_headers
+from . import provider_catalog as catalog
 from .metrics import render
 from .review_store import ReviewStore, RETENTION_DAYS
 
@@ -22,9 +23,13 @@ def store():
     return ReviewStore(dependencies()[0])
 
 
+def provider_store():
+    return catalog.ProviderStore(dependencies()[0])
+
+
 def settings():
     revision, value = store().current()
-    s = runtime.resolve(value) if value else runtime.Settings()
+    s = runtime.resolve(value, check_catalog=False) if value else runtime.Settings()
     s.runtime_snapshot = runtime.snapshot(s, revision)
     return s
 
@@ -149,12 +154,11 @@ async def validate_runtime(body: RuntimeChange, request: Request):
     # Read-only model discovery verifies credentials and advertised models. It does
     # not assert synthesis quality or incur a generated speech/dialogue request.
     try:
-        async with asyncio.timeout(15), httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+        async with asyncio.timeout(65):
             for stage in ('dialogue', 'vision', 'tts'):
                 endpoint = getattr(s, stage)
-                response = await client.get(endpoint.base+'/models', headers=provider_headers(endpoint))
-                response.raise_for_status()
-                if endpoint.model not in [m.get('id') for m in response.json().get('data', [])]:
+                models, _ = await catalog.discover(endpoint.protocol if endpoint.protocol in catalog.BASES else 'compatible', endpoint.base, endpoint.key)
+                if endpoint.model not in [m['id'] for m in models]:
                     raise ValueError('Model not advertised')
         from .providers import adapters
         stt = adapters(s)[0]
@@ -168,3 +172,84 @@ async def validate_runtime(body: RuntimeChange, request: Request):
     except Exception:
         raise HTTPException(422, 'Connection check failed. Check credentials, model availability and provider protocol in deployment. No change was saved.')
     return {'message': 'Model discovery and recognition connection passed. Speech quality and model capabilities still require a practice meeting.'}
+
+
+class ProviderInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=60)
+    kind: str = Field(max_length=30)
+    base: str = Field(default='', max_length=500)
+    key: str = Field(min_length=1, max_length=4096, repr=False)
+
+
+def provider_connection(pid):
+    if pid.startswith('app-'):
+        return provider_store().connection(pid)
+    stage, name = pid.split(':', 1)
+    conn = runtime.connections()[stage][name].copy()
+    conn['provider'] = conn.get('provider') or ('openai' if conn['base'] == catalog.BASES['openai'] else 'compatible')
+    return conn
+
+
+@router.get('/api/admin/providers')
+def list_providers(request: Request):
+    dependencies()[1](request, 'admin')
+    ps = provider_store()
+    result = []
+    for r in ps.rows():
+        result.append(dict(id=r['id'], name=r['name'], kind=r['kind'], base=r['base'], models=json.loads(r['catalog']), verified=r['verified'], source='app'))
+    for stage, pool in runtime.connections().items():
+        for name, conn in pool.items():
+            if conn.get('stored_id'):
+                continue
+            pid = stage+':'+name
+            conn = provider_connection(pid)
+            models, verified = ps.cached(pid, conn)
+            result.append(dict(id=pid, name=f'{stage}: {name}', kind=conn['provider'], base=conn['base'], models=models, verified=verified, source='deployment', stage=stage, connection=name))
+    try:
+        catalog.cipher()
+        ready = True
+    except ValueError:
+        ready = False
+    return {'providers': result, 'storage_ready': ready, 'pricing': catalog.PRICING}
+
+
+@router.post('/api/admin/providers')
+async def add_provider(body: ProviderInput, request: Request):
+    _, require, origin = dependencies()
+    require(request, 'admin'); origin(request)
+    try:
+        catalog.cipher()
+        base = catalog.validate(body.kind, body.base, body.key)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    try:
+        models, message = await catalog.discover(body.kind, base, body.key)
+    except Exception:
+        raise HTTPException(422, 'Provider verification failed. Check the key, API URL, account access and network route. Nothing was saved.') from None
+    pid = provider_store().save(body.name.strip(), body.kind, base, body.key, models)
+    return {'id': pid, 'message': message}
+
+
+@router.post('/api/admin/providers/{pid}/verify')
+async def verify_provider(pid: str, request: Request):
+    _, require, origin = dependencies()
+    require(request, 'admin'); origin(request)
+    try:
+        conn = provider_connection(pid)
+        models, message = await catalog.discover(conn['provider'], conn['base'], conn['key'])
+        provider_store().refresh(pid, conn, models)
+    except Exception:
+        raise HTTPException(422, 'Provider verification failed. Check credentials and connectivity. Previous catalog retained; availability is not confirmed.') from None
+    return {'message': message}
+
+
+@router.get('/api/admin/voices')
+def get_voices(request: Request, provider: str, model: str):
+    dependencies()[1](request, 'admin')
+    try:
+        conn = provider_connection(provider)
+    except (ValueError, KeyError):
+        raise HTTPException(404, 'Provider not found') from None
+    values = catalog.voices(conn['provider'], model)
+    return {'voices': values, 'source': 'Documented built-in voices for this model' if values else 'No standard voice-discovery API for this connection. Enter voice identifiers from your provider.'}

@@ -1,4 +1,4 @@
-"""Versioned runtime choices. Connection locations and keys stay deployment-owned."""
+"""Versioned runtime choices with legacy environment and app-owned providers."""
 import copy
 import json
 import os
@@ -28,6 +28,12 @@ def connections():
             if not re.fullmatch(r'[a-zA-Z0-9_-]{1,40}', name) or name == 'deployment':
                 raise ValueError('Invalid connection name')
             result[stage][name] = {'base': entry['base'], 'key': os.getenv(entry['key_env'], ''), 'provider': entry.get('provider', 'openai-compatible'), 'allow_anonymous': entry.get('allow_anonymous') is True and stage != 'stt'}
+    from .management import provider_store
+    for row in provider_store().rows():
+        models = json.loads(row['catalog'])
+        for stage in STAGES:
+            if any(stage in m['stages'] for m in models):
+                result[stage][row['id']] = {'base': row['base'], 'provider': row['kind'], 'models': models, 'stored_id': row['id']}
     return result
 
 
@@ -41,7 +47,7 @@ def defaults(s=None):
             'voices': [v.strip() for v in os.getenv('TTS_VOICES', s.voice+',ash,sage,echo').split(',')], 'rates': rates}
 
 
-def resolve(value):
+def resolve(value, check_catalog=True):
     s = Settings()
     pool = connections()
     if set(value) != set(STAGES) | {'voices', 'rates'}:
@@ -50,9 +56,15 @@ def resolve(value):
         choice = value[stage]
         if set(choice) != {'connection', 'model'} or not isinstance(choice['model'], str) or not (re.fullmatch(r'[a-zA-Z0-9_.:/-]{1,120}', choice['model']) or (s.mock and choice['model'] == '')):
             raise ValueError('Invalid model identifier')
-        conn = pool[stage].get(choice['connection'])
+        if choice['connection'].startswith('app-'):
+            from .management import provider_store
+            conn = provider_store().connection(choice['connection'])
+            if check_catalog and not any(m['id'] == choice['model'] and stage in m['stages'] for m in conn['models']):
+                raise ValueError('Model is not in the verified provider catalog')
+        else:
+            conn = pool[stage].get(choice['connection'])
         if not conn:
-            raise ValueError('Select a deployment-approved connection')
+            raise ValueError('Select a verified or legacy provider connection')
         if not s.mock and not conn['key'] and not conn.get('allow_anonymous'):
             raise ValueError('Connection credential is not configured')
         if stage == 'stt':
@@ -60,10 +72,14 @@ def resolve(value):
                 raise ValueError('Unsupported recognition protocol')
             s.stt_provider, s.stt_url, s.stt_key, s.stt_model = conn['provider'], conn['base'], conn['key'], choice['model']
         else:
-            setattr(s, stage, Endpoint(conn['base'], choice['model'], conn['key']))
+            setattr(s, stage, Endpoint(conn['base'], choice['model'], conn['key'], conn.get('provider', 'compatible')))
     voices = value['voices']
     if not isinstance(voices, list) or not 4 <= len(voices) <= 8 or len(set(voices)) != len(voices) or any(not isinstance(v, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', v) for v in voices):
         raise ValueError('Provide at least four distinct voice identifiers')
+    from .provider_catalog import voices as available_voices
+    known_voices = available_voices(s.tts.protocol if s.tts.base != 'https://api.openai.com/v1' else 'openai', s.tts.model)
+    if known_voices and any(v not in known_voices for v in voices):
+        raise ValueError('Select voices supported by this speech model')
     rates = value['rates']
     if set(rates) != set(RATE_KEYS):
         raise ValueError('All pricing ceilings are required')
@@ -100,4 +116,4 @@ def snapshot(s, revision):
     return {'revision': revision, 'consent_revision': consent_revision(s, revision),
             'choices': getattr(s, 'runtime_choices', None) or defaults(s),
             'data_flow': {**{stage: urlparse(getattr(s, stage).base).hostname for stage in ('dialogue', 'vision', 'tts')}, 'stt': urlparse(s.stt_url).hostname}, 'providers': {stage: {'model': s.stt_model, 'provider': s.stt_provider} if stage == 'stt' else {'model': getattr(s, stage).model} for stage in STAGES},
-            'voices': getattr(s, 'voices', [s.voice]), 'personality_version': 'cast-v1', 'app_version': os.getenv('APP_VERSION') or build_id()}
+            'voices': getattr(s, 'voices', [s.voice]), 'personality_version': 'general-cast-v2', 'app_version': os.getenv('APP_VERSION') or build_id()}

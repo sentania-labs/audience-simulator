@@ -87,8 +87,21 @@ test('late audio reports a playback underrun but new responses and muted output 
   audio.ctx.currentTime=3;
   audio.play(pcm,1);
   const gaps=events.filter(e=>e.stage==='playback_underrun');
-  assert.equal(gaps.length,1);assert(gaps[0].value_ms>1900);
+  assert.equal(gaps.length,1);assert(gaps[0].value_ms>1750 && gaps[0].value_ms<1850);
   audio.setOutputMute(true);audio.ctx.currentTime=5;audio.play(pcm,1);
   audio.setOutputMute(false);audio.stop(2);audio.play(pcm,2);
   assert.equal(events.filter(e=>e.stage==='playback_underrun').length,1);
+});
+
+test('initial buffer absorbs the observed short inter-chunk stall without delaying every chunk',()=>{
+  const events=[];const audio=new MeetingAudio(e=>events.push(e),()=>{});
+  audio.ctx=new FakeContext();audio.gain=new FakeNode();
+  const chunk=Buffer.alloc(4800).toString('base64');
+  audio.play(chunk,1);
+  const first=[...audio.sources][0];
+  audio.ctx.currentTime+=.239; // Old 40 ms lead + 100 ms audio left a 99 ms gap.
+  audio.play(chunk,1);
+  const second=[...audio.sources][1];
+  assert.equal(events.filter(e=>e.stage==='playback_underrun').length,0);
+  assert(Math.abs(second.startedAt-(first.startedAt+.1))<.000001);
 });

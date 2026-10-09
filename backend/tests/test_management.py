@@ -123,12 +123,13 @@ def test_metrics_auth_bounded_labels_and_samples(client, monkeypatch):
 
 def test_cast_is_authored_and_selected_on_server(client):
     scenarios = client.get('/api/scenarios').json()
-    assert len(scenarios) == 4 and all(len(s['cast']) == 6 for s in scenarios)
+    assert len(scenarios) == 1 and len(scenarios[0]['cast']) == 6
     with client.websocket_connect('/api/meeting', headers=ORIGIN) as ws:
-        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'], consent=True, sample_rate=48000, scenario_id='alderbank', attendees=[{'cast_id':'alderbank-0','name':'Spoof','objective':'Different'}]))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'], consent=True, sample_rate=48000, scenario_id='general', attendees=[{'cast_id':'general-0','name':'Spoof','objective':'Different'}]))
         joined = ws.receive_json()
-        assert joined['persona']['name'] == 'Morgan Hale'
-        assert 'next integration' in joined['persona']['objective']
+        assert joined['persona']['name'] == 'Morgan'
+        assert joined['persona']['objective'] == ''
+        assert joined['persona']['role'] == 'CIO'
         ws.send_json(dict(type='end'))
         while ws.receive_json()['type'] != 'summary':
             pass
@@ -177,7 +178,7 @@ def test_anonymous_validation_uses_same_headers_as_live_adapter(client, monkeypa
         def __init__(self, **kwargs): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
-        async def get(self, url, headers):
+        async def get(self, url, headers, params=None):
             requests.append(headers)
             assert 'Authorization' not in headers
             return ModelList()

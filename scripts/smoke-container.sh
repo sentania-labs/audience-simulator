@@ -3,12 +3,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 image="${1:?image required}"
 name="audience-smoke-$$"
-export MEETING_PASSWORD ADMIN_PASSWORD METRICS_TOKEN
+export MEETING_PASSWORD ADMIN_PASSWORD METRICS_TOKEN PROVIDER_ENCRYPTION_KEY
 MEETING_PASSWORD="$(openssl rand -hex 24)"
 ADMIN_PASSWORD="$(openssl rand -hex 24)"
 METRICS_TOKEN="$(openssl rand -hex 24)"
+PROVIDER_ENCRYPTION_KEY="$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-docker run -d --name "$name" -p 127.0.0.1::8000 --read-only --tmpfs /tmp --tmpfs /app/data:uid=1000,gid=1000   --cap-drop ALL --security-opt no-new-privileges -e PROVIDER_MODE=mock -e COOKIE_SECURE=false   -e MEETING_PASSWORD -e ADMIN_PASSWORD -e METRICS_TOKEN "$image" >/dev/null
+docker run -d --name "$name" -p 127.0.0.1::8000 --read-only --tmpfs /tmp --tmpfs /app/data:uid=1000,gid=1000   --cap-drop ALL --security-opt no-new-privileges -e PROVIDER_MODE=mock -e COOKIE_SECURE=false   -e MEETING_PASSWORD -e ADMIN_PASSWORD -e METRICS_TOKEN -e PROVIDER_ENCRYPTION_KEY "$image" >/dev/null
 port="$(docker port "$name" 8000/tcp | cut -d: -f2)"
 export SMOKE_URL="http://127.0.0.1:$port"
 for attempt in $(seq 1 30); do

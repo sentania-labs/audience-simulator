@@ -27,3 +27,30 @@ feedback and explicit transcript submission, admin review with retention/deletio
 admin runtime provider/model settings with validation/history/rollback, and the
 fictional cast and conversation behavior improvements discussed in this session.
 Validate and deliver through SDLC. No external deployment or release is requested.
+
+## Admin simplification and release authorization
+
+Scott's October 9, 2026 instructions, preserved verbatim:
+
+> okay we overrotated on persona.  FOr now let's just have a cast of six random peeps that we insert.  less backstory focused and more general.  I want to share this and start getting feedback to dial in.
+>
+> admin: revamp the admin page so it's not a single scroll - give me some tabs.
+>
+> Also: Models and providers: populate the model based on the provider connection and the key.
+>
+> Let me select multiple providers:
+> gpt, anthropic, gemini, openAI compactible (make me provide a URL and key).
+>
+> also check the logs for any errors/diagnostic problems we should address and include that.
+>
+> target = 0.2.1
+>
+> this means the helm chart should shift keys out of secrets and shift them into the app
+>
+> FYI I put in gpt-6-luna as the dialoge model and when I load the meeting I get a timeout
+
+Scope: implement and validate these changes, use the SDLC review and PR pipeline,
+and publish the requested release. Record relevant diagnostic findings without
+private transcript text or keys. Provider credentials become app-owned encrypted
+records; the encryption key and access credentials remain deployment-owned. No
+external infrastructure changes or public DNS changes are authorized here.

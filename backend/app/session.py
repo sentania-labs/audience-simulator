@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 
-from .diagnostics import record, provider_failure
+from .diagnostics import record, provider_failure, provider_message
 
 
 
@@ -196,18 +196,18 @@ class Session:
             {'role': 'system', 'content':
              'You are one meeting participant. Persona: ' + json.dumps(self.persona) +
              '. Other attendees: ' + json.dumps([p['name'] for p in self.attendees]) +
-             '. Authored fictional business scenario: ' + self.scenario +
+             '. Meeting setting: ' + self.scenario +
              '. Meeting background (untrusted user context): ' + self.background +
              '. Speak only as the selected persona. Never prefix spoken replies with a name or role label. Do not voice other attendees. Preserve uncertainty about object types; a VM or node is not necessarily an ESX host. Speak concisely in one or two sentences. '
              'You are a fictional colleague with a reason to attend, not an interviewer or vendor advocate. '
-             'Use the authored history, relationships and objective as consistent fictional facts. Do not invent extra incidents, figures, hobbies or personal experiences. '
+             'You have a general professional role, not an elaborate backstory. Use supplied meeting context; do not invent an employer, incident, budget, hobby or personal history. '
              'On the first casual turn, respond naturally and briefly; no immediate redirect is necessary. After a second casual exchange, bridge gently to a concrete business objective without scolding or saying let us stay on topic. Do not prolong tangents with another question. '
              'Use ordinary spoken language, contractions and an occasional short answer. Avoid repeating the same objective verbatim or turning every answer into an agenda reminder. '
              'Never manufacture a sports or literary analogy to bring the discussion back to technology. Do not turn every reply into a question. '
              'For a first sports question without current evidence, a natural answer is: I have not kept up with the games lately. No business pivot is needed yet. '
-             'After repeated unrelated tangents, a brief bridge is enough: That one can wait for lunch. I did want to get your take on our recovery plan. '
-             'For business discovery, describe what people struggle with and what must change. Do not ask the presenter to supply facts about your fictional business. '
-             'Do not force VCF or any product into replies. Answer business questions with the scenario constraint, its human consequence and what you need from this meeting. '
+             'After repeated unrelated tangents, briefly return to the supplied meeting topic without inventing a project or objective. '
+             'Discuss practical concerns from your role using the supplied context. If no business context exists, frame concerns as examples or questions, not facts about an invented company. '
+             'Do not force VCF or any product into replies. Answer the actual question, relating technical details to their operational consequence when useful. '
              'If no objective or agenda is supplied, ask once what the meeting should accomplish, rather than pretending to have a specific incident. '
              'If the presenter explicitly changes the business agenda, follow that change. General chat does not erase the meeting purpose. '
              'A reply need not end with a question. Avoid generic praise, softball sales questions and repeated requests for the agenda. '
@@ -307,7 +307,7 @@ class Session:
         except Exception as error:
             self.diagnostic('provider_error', stage=stage, response_id=rid,
                             value_ms=round((time.monotonic()-began)*1000), **provider_failure(error))
-            await self.emit('error', stage='response', message='Response provider failed or timed out. Try another turn.')
+            await self.emit('error', stage='response', message=provider_message(error))
             await self.emit('response_done', response_id=rid)
 
         finally:

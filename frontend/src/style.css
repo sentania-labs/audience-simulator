@@ -13,3 +13,8 @@
 .verbatim {white-space:pre-wrap;overflow-wrap:anywhere}
 .admin .config {margin-top:24px}
 .admin pre {white-space:pre-wrap;overflow-wrap:anywhere}
+
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 24px;border-bottom:1px solid #344047;padding-bottom:12px}
+.tabs button[aria-pressed=true]{color:#0c2d26;background:#91dfcd;border-color:#91dfcd;font-weight:700}
+[hidden]{display:none!important}
+.providerList{margin-top:24px}.admin a:hover{text-decoration:underline}

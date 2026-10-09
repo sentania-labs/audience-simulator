@@ -38,6 +38,7 @@ async def main():
         assert (await client.post('/api/auth/admin/login',headers={'origin':origin},
                                  json={'password':os.environ['ADMIN_PASSWORD']})).status_code == 200
         assert (await client.get('/api/admin/feedback')).json()['reviews'] == []
+        assert (await client.get('/api/admin/providers')).json()['storage_ready'] is True
         sid, token = first['session_id'], first['review_token']
         feedback = dict(token=token,rating=3,comment='Synthetic artifact smoke')
         assert (await client.post('/api/feedback/'+sid,headers={'origin':origin},json=feedback)).status_code == 200

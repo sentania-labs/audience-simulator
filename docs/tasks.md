@@ -6,7 +6,7 @@
 | P0 | Speech plus frame feasibility slice | Provider access | Heard exchange grounded in slide and changed demo | Hosted synthetic speech/vision verified; human gate pending |
 | P0 | Cancellation and instrumentation | Slice | No stale playback after interruption, measured stage timings | Mock checks and browser receipts implemented |
 | P1 | One-persona UI, timeline, summary | Slice live gate | Exact nine-step acceptance and ten-minute session | Candidate built, acceptance pending |
-| P1 | Tests, Compose and setup | Candidate | Repeatable mock checks and runnable deployment | 29 tests pass, opt-in test skipped; container and browser mock run verified |
+| P1 | Tests, Compose and setup | Candidate | Repeatable mock checks and runnable deployment | 43 backend and two browser tests pass, opt-in test skipped; container, kind and browser verified |
 | P2 | Spark comparison | Available Spark services | Concurrent speech/vision load measurements | Deferred, no capacity assumption |
 
 The meeting UI is a small verification harness built for provider validation;
@@ -22,11 +22,10 @@ it does not imply the feasibility gate has passed.
 | Screen injection | Persona follows malicious slide text | Untrusted context boundary, no tools, injection test; not a mathematical guarantee |
 | Provider protocol differences | Local endpoint incompatibility | Separate adapters and documented exact wire contracts |
 | Memory-only retention | Closing loses review | Explicit download before leaving, no silent disk persistence |
-| No authentication | Exposure if port published | Loopback binding; remote use only with authenticated HTTPS proxy |
+| Shared-password access | No individual identity or per-user attribution | Separate admin/meeting roles, expiry, throttling, HTTPS and small trusted group |
 
 Next iteration: finish human validation of the hosted profile, tune barge-in and frame cadence from
-measurements, then benchmark Spark under simultaneous load. No later roadmap phases
-are authorized by this plan.
+measurements, then benchmark Spark under simultaneous load. The peer-preview expansion below is explicitly authorized; other roadmap phases remain deferred.
 
 Validation: non-author review identified five defects (concurrent replies, stale current
 view, early context eviction, dropped controls, repeat questions). All five were
@@ -39,9 +38,9 @@ Hosted credentials now work. Exact MVP acceptance remains pending a human presen
 
 1. Access and durable controls: separate role gates, atomic reservation ledger and
    safe cutoff. Exit: denied unauthenticated sockets, isolated role tests and
-   concurrent budget tests pass.
+   concurrent budget tests pass. Verified locally.
 2. Audience configuration and admin, depends on 1: one speech lane, named attendee
-   selection and shared context. Exit: two independent meetings and browser review.
+   selection and shared context. Exit: two independent meetings and browser review. Verified locally.
 3. Distribution, depends on 1 and 2: Compose, Helm, existing Secret and CI release.
    Exit: artifact smoke and kind restart persistence, adversarial review and CI.
 4. Release, depends on 3: reviewed main, annotated v0.1.0 and immutable GHCR image,

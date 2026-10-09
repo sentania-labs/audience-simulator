@@ -13,6 +13,7 @@ image=f'ghcr.io/sentania-labs/audience-simulator@{digest}'
 compose=Path('compose.yaml').read_text().replace('    build: .\n','')
 compose=compose.replace('${AUDIENCE_IMAGE:-ghcr.io/sentania-labs/audience-simulator:latest}',image)
 (out/'compose.yaml').write_text(compose)
+shutil.copytree('docs',out/'docs',dirs_exist_ok=True)
 for source in ('README.md','.env.example','deploy/secret.example.yaml'):
     shutil.copy(source,out/Path(source).name)
 argo=Path('deploy/argocd-application.yaml').read_text().replace('targetRevision: main',f'targetRevision: {version}').replace('tag: latest',f'tag: {version}\n          digest: {digest}')

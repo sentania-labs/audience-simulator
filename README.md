@@ -90,6 +90,18 @@ See deploy/secret.example.yaml for key names. Do not put credentials in Helm
 values. Install the bundled chart with values-release.yaml plus your site values,
 or pin the supplied Argo Application to the release tag.
 
+From an extracted release bundle, a direct Helm install looks like:
+
+```sh
+helm upgrade --install audience ./audience-simulator-*.tgz \
+  --namespace audience-simulator --create-namespace \
+  -f values-release.yaml -f site-values.yaml
+```
+
+Your site-values.yaml sets existingSecret, ingress, storage class and allowed
+origin. For Argo, commit the supplied pinned Application plus your sealed Secret
+and site settings to your deployment repository.
+
 Configure ALLOWED_ORIGINS to your exact HTTPS URL, COOKIE_SECURE=true, ingress
 class/host/TLS secret, and a persistent storage class. The ingress must support
 WebSocket upgrade and a read timeout longer than the meeting limit. No DNS record

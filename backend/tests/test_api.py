@@ -186,3 +186,20 @@ def test_first_attendee_voice_is_used_for_greeting(client, monkeypatch):
         ws.send_json(dict(type='end'))
         while ws.receive_json()['type']!='summary':
             pass
+
+
+def test_interrupt_then_silence_allows_visual_followup(client):
+    with client.websocket_connect('/api/meeting',headers={'origin':'http://localhost:8000'}) as ws:
+        ws.send_json(dict(type='join',consent=True,sample_rate=48000))
+        assert ws.receive_json()['type']=='joined'
+        ws.send_json(dict(type='interrupt'))
+        ws.send_json(dict(type='speech_end'))
+        ws.send_json(dict(type='share',enabled=True))
+        ws.send_json(dict(type='frame',jpeg='/9g=',captured_ms=0))
+        while ws.receive_json()['type']!='observation':
+            pass
+        while ws.receive_json()['type']!='response_done':
+            pass
+        ws.send_json(dict(type='end'))
+        while ws.receive_json()['type']!='summary':
+            pass

@@ -23,6 +23,7 @@ ingress:
   annotations: {}
 config:
   PROVIDER_MODE: hosted
+  FORWARDED_ALLOW_IPS: "127.0.0.1" # Override with trusted ingress proxy addresses/CIDRs.
   COOKIE_SECURE: "true"
   ALLOWED_ORIGINS: https://audience.example.invalid
   MEETING_BUDGET_USD: "1.50"

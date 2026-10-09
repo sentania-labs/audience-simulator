@@ -73,7 +73,7 @@ function App() {
         if(e.type==='response_done')audio.current?.done(Number(e.response_id));
         if(e.type==='joined'){
           audio.current?.reportState();
-          base.current=performance.now()-Number(e.t_ms);setJoined(true);setConnecting(false);setStatus('Meeting live');
+          base.current=performance.now()-Number(e.t_ms);setSpeaker(attendees[0].name);setJoined(true);setConnecting(false);setStatus('Meeting live');
         }
         if(e.type==='transcript')setPartial('');
         if(e.type==='error')setStatus(String(e.message));
@@ -140,7 +140,7 @@ function App() {
         <section className="stage"><div className="stageHeader"><span className="eyebrow">{ended?'SESSION REVIEW':'PRACTICE ROOM'}</span><span className="badge">{attendees.length} AI attendees</span></div>
           <div className={`shareArea ${sharing?'visible':''}`}><video ref={preview} muted autoPlay playsInline/><div className="shareLabel">● Your screen is being sampled</div></div>
           {!sharing&&<div className="participant"><span className={`avatar ${speaking?'speaking':''}`}>{speaker[0]||'M'}</span><h2>{speaker}</h2><p>{attendees.find(p=>p.name===speaker)?.role}</p><span className="badge">{ended?'Meeting ended':speaking?'Speaking':'Listening'}</span><p className="spoken">{speaking?spokenText:'Share a slide or demo to add visual context.'}</p></div>}
-          {sharing&&<div className="profile"><span className="avatar small">{persona.name[0]}</span><div><strong>{persona.name}</strong><p>{speaking?'Speaking':'Listening'}</p></div></div>}
+          {sharing&&<div className="profile"><span className="avatar small">{speaker[0]}</span><div><strong>{speaker}</strong><p>{speaking?'Speaking':'Listening'}</p></div></div>}
           <div className="roster">{attendees.map(a=><span className="badge" key={a.name}>{a.name}{speaking&&speaker===a.name?' · Speaking':''}</span>)}</div>
           <p className={usage.warning?'error':'hint'}>Estimated meeting spend: ${usage.meeting_usd.toFixed(3)} / ${config?.limits.meeting_usd.toFixed(2)}{usage.warning?' · Allowance nearly reached':''}</p>
           <div className="controls"><button disabled={ended} className={muted?'active':''} onClick={()=>{const value=!muted;setMuted(value);audio.current?.setMute(value);send({type:'mute',enabled:value});}}>{muted?'Unmute mic':'Mute mic'}</button><button disabled={ended} onClick={()=>{const value=!outputMuted;setOutputMuted(value);audio.current?.setOutputMute(value);}}>{outputMuted?'Enable speaker':'Mute speaker'}</button><button disabled={ended} onClick={()=>void share()}>{sharing?'Switch share':'Share screen'}</button>{sharing&&<button onClick={()=>stopShare()}>Stop sharing</button>}<button disabled={ended} onClick={interrupt}>Interrupt</button><button className="danger" disabled={ended} onClick={()=>void end()}>End meeting</button></div>

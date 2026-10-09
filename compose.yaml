@@ -9,6 +9,7 @@ services:
     environment:
       MEETING_PASSWORD: ${MEETING_PASSWORD:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       DATA_PATH: /app/data/control.sqlite3
       MEETING_BUDGET_USD: ${MEETING_BUDGET_USD:-1.50}

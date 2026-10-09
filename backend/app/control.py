@@ -54,8 +54,10 @@ class Control:
             CREATE INDEX IF NOT EXISTS charge_meeting ON charges(meeting);
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS logins (token TEXT PRIMARY KEY, role TEXT, expires REAL);
-            CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY, at REAL);
+            CREATE TABLE IF NOT EXISTS attempts (id INTEGER PRIMARY KEY, at REAL, bucket TEXT);
             ''')
+            if 'bucket' not in {row[1] for row in db.execute('PRAGMA table_info(attempts)')}:
+                db.execute("ALTER TABLE attempts ADD COLUMN bucket TEXT DEFAULT 'legacy'")
             # Single process owns active sessions. A restart cannot revive provider work.
             db.execute("UPDATE meetings SET status='restart', ended=? WHERE status='active'", (local_time(),))
 
@@ -150,18 +152,18 @@ class Control:
         with self.db() as db:
             db.execute("INSERT OR REPLACE INTO settings VALUES ('paused',?)", ('true' if paused else 'false',))
 
-    def login(self, role, password):
-        with self.db() as db:
-            db.execute('DELETE FROM attempts WHERE at<?', (time.time()-60,))
-            if db.execute('SELECT count(*) FROM attempts').fetchone()[0] >= 20:
-                raise LimitReached('Too many login attempts. Wait a minute.')
-            db.execute('INSERT INTO attempts(at) VALUES (?)', (time.time(),))
+    def login(self, role, password, client='local'):
         expected = os.getenv(f'{role.upper()}_PASSWORD', '')
         other = os.getenv('ADMIN_PASSWORD' if role=='meeting' else 'MEETING_PASSWORD', '')
-        if len(expected) < 12 or expected == other or not hmac.compare_digest(password.encode(), expected.encode()):
-            return None
-        token = secrets.token_urlsafe(32)
+        bucket = self.digest(role+':'+client)
         with self.db() as db:
+            db.execute('DELETE FROM attempts WHERE at<?', (time.time()-60,))
+            if db.execute('SELECT count(*) FROM attempts WHERE bucket=?', (bucket,)).fetchone()[0] >= 20:
+                raise LimitReached('Too many login attempts. Wait a minute.')
+            if len(expected) < 12 or expected == other or not hmac.compare_digest(password.encode(), expected.encode()):
+                db.execute('INSERT INTO attempts(at,bucket) VALUES (?,?)', (time.time(), bucket))
+                return None
+            token = secrets.token_urlsafe(32)
             db.execute('DELETE FROM logins WHERE expires<?', (time.time(),))
             db.execute('INSERT INTO logins VALUES (?,?,?)', (self.digest(token), role, time.time()+8*3600))
         return token

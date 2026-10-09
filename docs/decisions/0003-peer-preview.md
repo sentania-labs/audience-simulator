@@ -10,7 +10,8 @@ and playback lane, preserving cancellation semantics.
 
 Separate opaque meeting/admin cookies expire after eight hours. Only token hashes
 persist. Cookies are HttpOnly, SameSite Strict and Secure by default. Login is
-limited to 20 attempts per minute globally. Mutations and WebSocket connections
+limited to 20 failed attempts per minute per client address and role. Successful
+logins do not consume the failure allowance. Mutations and WebSocket connections
 require an allowed Origin. Admin credentials grant statistics access, not meeting
 access. Shared passwords are suitable for the agreed small trusted group, not
 individual accountability. Password changes require restart; revoke existing

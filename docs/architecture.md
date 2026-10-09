@@ -1,6 +1,6 @@
 # MVP architecture
 
-Status: implemented candidate, real-provider feasibility gate pending credentials.
+Status: hosted speech and synthetic visual grounding verified; peer-preview controls implemented. Exact full human acceptance remains pending.
 
 ```text
 React browser
@@ -37,9 +37,10 @@ A continuation timer merges nearby finalized recognition segments. Explicit inte
 remains immediate. Optional Jev judgments run independently for observation only.
 
 No raw audio or frames are stored. Timeline and summary are browser/session memory
-only, with explicit JSON download. Disconnect destroys backend state. A single
-process serves frontend and WebSocket, behind localhost by default. Remote use needs
-HTTPS and an authenticated reverse proxy; this is not a multi-tenant service.
+only, with explicit JSON download. Disconnect destroys backend conversation state;
+budget and session metadata persist as described below. A single process serves
+frontend and WebSocket, behind localhost by default. Remote use requires HTTPS;
+the app provides shared-password access for a small trusted peer group.
 
 ## Peer preview distribution and controls
 

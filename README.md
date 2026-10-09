@@ -103,7 +103,9 @@ origin. For Argo, commit the supplied pinned Application plus your sealed Secret
 and site settings to your deployment repository.
 
 Configure ALLOWED_ORIGINS to your exact HTTPS URL, COOKIE_SECURE=true, ingress
-class/host/TLS secret, and a persistent storage class. The ingress must support
+class/host/TLS secret, and a persistent storage class. Login throttling uses the client address and role. Set FORWARDED_ALLOW_IPS to your
+trusted ingress proxy addresses/CIDRs if you need original client addresses; do
+not trust arbitrary internet clients to supply forwarded headers. The ingress must support
 WebSocket upgrade and a read timeout longer than the meeting limit. No DNS record
 is created by this project. The admin page is /?admin and uses its own password.
 

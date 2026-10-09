@@ -122,7 +122,10 @@ export class MeetingAudio {
 
   done(rid: number) {
     this.completed.add(rid);
-    if (!this.sources.size && this.active === rid) {this.active = -1; this.state(false);}
+    if (!this.sources.size && this.active === rid) {
+      this.active = -1; this.state(false);
+      this.send({type:'playback_ended',response_id:rid});
+    }
   }
 
   async close() {

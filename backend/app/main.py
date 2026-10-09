@@ -55,7 +55,7 @@ async def login(role: str, body: Login, request: Request, response: Response):
         raise HTTPException(404)
     same_origin(request)
     try:
-        token = control().login(role, body.password)
+        token = control().login(role, body.password, request.client.host if request.client else 'unknown')
     except LimitReached as exc:
         raise HTTPException(429, str(exc))
     if not token:
@@ -265,6 +265,7 @@ async def meeting(ws: WebSocket):
                 session.diagnostic('speech_activity', source='browser')
             elif kind == 'speech_end':
                 session.diagnostic('speech_end', source='browser')
+                session.speech_active = False
                 session.speech_end = __import__('time').monotonic()
             elif kind == 'share':
                 await session.share(bool(data.get('enabled')))

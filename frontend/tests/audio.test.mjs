@@ -54,3 +54,15 @@ test('microphone mute disables track and prevents audio transmission; sustained 
     await audio.close();
   } finally {Object.defineProperty(globalThis,'performance',{configurable:true,value:originalPerformance});}
 });
+
+test('completion after PCM drains emits exactly one playback ended receipt',()=>{
+  const events=[];const audio=new MeetingAudio(e=>events.push(e),()=>{});
+  audio.ctx=new FakeContext();audio.gain=new FakeNode();
+  audio.play(pcm,9);
+  [...audio.sources][0].onended();
+  assert.equal(audio.sources.size,0);
+  assert.equal(events.filter(e=>e.type==='playback_ended').length,0);
+  audio.done(9);audio.done(9);
+  assert.equal(events.filter(e=>e.type==='playback_ended'&&e.response_id===9).length,1);
+  assert.equal(audio.active,-1);
+});

@@ -77,3 +77,17 @@ def test_daily_reset_uses_calendar_day(tmp_path, monkeypatch):
     c.reserve('one','vision',.1)
     monkeypatch.setattr(module,'day',lambda:'2026-10-09')
     assert c.usage('one') == dict(meeting_usd=.1,daily_usd=0,warning=False)
+
+
+def test_login_failure_buckets_are_client_and_role_scoped(tmp_path, monkeypatch):
+    monkeypatch.setenv('MEETING_PASSWORD','meeting-test-password')
+    monkeypatch.setenv('ADMIN_PASSWORD','admin-test-password')
+    c=Control(str(tmp_path/'db'))
+    for _ in range(25):
+        assert c.login('meeting','meeting-test-password','successful-client')
+    for _ in range(20):
+        assert c.login('meeting','wrong','abusive-client') is None
+    with pytest.raises(LimitReached):
+        c.login('meeting','wrong','abusive-client')
+    assert c.login('admin','admin-test-password','abusive-client')
+    assert c.login('meeting','meeting-test-password','another-client')

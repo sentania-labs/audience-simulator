@@ -3,9 +3,40 @@ import logging
 
 import pytest
 
-from app.diagnostics import record
+from app.diagnostics import record, provider_failure
 from app.providers import MockRecognition, MockDialogue, MockVision, MockSpeech
 from app.session import Session
+
+
+@pytest.mark.asyncio
+async def test_speech_timeout_identifies_stage_without_leaking_provider_details(caplog):
+    import httpx
+    caplog.set_level(logging.INFO, logger='audience')
+    sent = []
+    async def send(event):
+        sent.append(event)
+    class FailedSpeech:
+        async def stream(self, text):
+            raise httpx.ReadTimeout('secret provider payload')
+            yield b''
+    s = Session(send, MockRecognition(), MockDialogue(), MockVision(), FailedSpeech(), {'name': 'Morgan'}, True)
+    await s.user_turn('Synthetic diagnostic')
+    await s.reply_task
+    rows = [json.loads(r.message) for r in caplog.records if r.name == 'audience']
+    failure = next(r for r in rows if r['event'] == 'provider_error')
+    assert failure['stage'] == 'tts'
+    assert failure['error_kind'] == 'read_timeout'
+    assert failure['response_id'] == s.generation
+    assert 'secret provider payload' not in caplog.text + str(sent)
+
+
+def test_provider_http_error_exposes_status_only():
+    import httpx
+    request = httpx.Request('POST', 'https://private.invalid/speech?key=secret',
+                            headers={'Authorization': 'Bearer secret'})
+    error = httpx.HTTPStatusError('private body', request=request,
+                                  response=httpx.Response(429, request=request, text='private body'))
+    assert provider_failure(error) == {'error_kind': 'http_status', 'status_code': 429}
 
 
 def test_metadata_allowlist_and_text_opt_in(caplog):

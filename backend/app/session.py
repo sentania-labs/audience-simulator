@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 
-from .diagnostics import record
+from .diagnostics import record, provider_failure
 
 
 
@@ -207,6 +207,7 @@ class Session:
         text, buffer, first_token, first_audio = '', '', True, True
         chunks = byte_count = 0
         record = None
+        stage = 'dialogue'
         try:
             if self.sharing and not self.visual_ready.is_set():
                 try:
@@ -225,7 +226,9 @@ class Session:
                     self.latest_reply = text
                     buffer += token
                     if re.search(r'[.!?]\s*$', buffer) or len(buffer) >= 180:
+                        stage = 'tts'
                         async for pcm in self.synthesize(buffer, rid):
+                            stage = 'delivery'
                             if first_audio:
                                 await self.metric('response_first_audio_sent', began, response_id=rid)
                                 first_audio = False
@@ -233,11 +236,15 @@ class Session:
                             byte_count += len(pcm)
                             await self.send({'type': 'audio', 'response_id': rid, 'sample_rate': 24000,
                                              'pcm': base64.b64encode(pcm).decode()})
+                            stage = 'tts'
                         buffer = ''
+                        stage = 'dialogue'
                     if len(text) > 3000:
                         break
                 if buffer.strip():
+                    stage = 'tts'
                     async for pcm in self.synthesize(buffer, rid):
+                        stage = 'delivery'
                         if first_audio:
                             await self.metric('response_first_audio_sent', began, response_id=rid)
                             first_audio = False
@@ -245,6 +252,8 @@ class Session:
                         byte_count += len(pcm)
                         await self.send({'type': 'audio', 'response_id': rid, 'sample_rate': 24000,
                                          'pcm': base64.b64encode(pcm).decode()})
+                        stage = 'tts'
+                stage = 'delivery'
                 if text:
                     record = {'role': 'assistant', 'content': self.persona['name'] + ': ' + text.strip()}
                     self.history.append(record)
@@ -260,7 +269,9 @@ class Session:
                 await self.emit('transcript', speaker=self.persona['name'], text=text[:3000],
                                 final=False, response_id=rid, delivery='interrupted; may be partly unheard')
             raise
-        except Exception:
+        except Exception as error:
+            self.diagnostic('provider_error', stage=stage, response_id=rid,
+                            value_ms=round((time.monotonic()-began)*1000), **provider_failure(error))
             await self.emit('error', stage='response', message='Response provider failed or timed out. Try another turn.')
             await self.emit('response_done', response_id=rid)
 
@@ -270,6 +281,10 @@ class Session:
     async def synthesize(self, text, rid):
         began = time.monotonic()
         first = True
+        last_chunk = began
+        max_gap = 0
+        byte_count = 0
+        self.diagnostic('tts_request', response_id=rid, text_length=len(text.strip()))
         await self.send({'type': 'speaking_text', 'response_id': rid, 'text': text.strip()})
         async for pcm in self.tts.stream(text.strip()):
             if rid != self.generation or self.ended:
@@ -277,8 +292,14 @@ class Session:
             if first:
                 await self.metric('tts_first_audio', began, response_id=rid)
                 first = False
+            else:
+                max_gap = max(max_gap, time.monotonic()-last_chunk)
+            last_chunk = time.monotonic()
+            byte_count += len(pcm)
             yield pcm
         await self.metric('tts_complete', began, response_id=rid)
+        self.diagnostic('tts_stream', response_id=rid, byte_count=byte_count,
+                        value_ms=round(max_gap*1000), stage='max_audio_gap')
 
     async def share(self, enabled):
         self.last_activity = time.monotonic()

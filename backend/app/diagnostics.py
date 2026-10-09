@@ -2,10 +2,27 @@
 import json
 import logging
 import math
+import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger('audience')
+
+
+def provider_failure(error):
+    """Classify failures without copying URLs, headers, messages or response bodies."""
+    for cls, kind in ((httpx.ReadTimeout, 'read_timeout'),
+                      (httpx.ConnectTimeout, 'connect_timeout'),
+                      (httpx.TimeoutException, 'http_timeout'),
+                      (TimeoutError, 'response_timeout'),
+                      (httpx.HTTPStatusError, 'http_status'),
+                      (httpx.TransportError, 'transport')):
+        if isinstance(error, cls):
+            fields = {'error_kind': kind}
+            if isinstance(error, httpx.HTTPStatusError):
+                fields['status_code'] = error.response.status_code
+            return fields
+    return {'error_kind': 'provider_failure'}
 
 
 def record(session_id, event, transcript=False):
@@ -13,11 +30,11 @@ def record(session_id, event, transcript=False):
            'session_id': session_id, 'event': event['type']}
     # Never serialize arbitrary event fields or exception/provider payloads.
     for key in ('t_ms', 'response_id', 'next_id', 'value_ms', 'sample_rate', 'text_length',
-                'queued_sources', 'gain', 'confidence', 'chunk_count', 'byte_count'):
+                'queued_sources', 'gain', 'confidence', 'chunk_count', 'byte_count', 'status_code'):
         value = event.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
             row[key] = value
-    for key in ('stage', 'source', 'mode', 'context_state', 'delivery', 'outcome'):
+    for key in ('stage', 'source', 'mode', 'context_state', 'delivery', 'outcome', 'error_kind'):
         value = event.get(key)
         if isinstance(value, str):
             row[key] = value[:80]

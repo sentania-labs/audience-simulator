@@ -134,3 +134,14 @@ def test_chart_upgrade_retains_legacy_seed_models():
     assert chart['config']['VISION_MODEL']=='gpt-4.1-mini'
     assert chart['config']['TTS_MODEL']=='gpt-4o-mini-tts'
     assert chart['config']['TTS_VOICES']=='coral,ash,sage,echo'
+
+
+@pytest.mark.parametrize('connection', [None, 123, [], {}])
+@pytest.mark.parametrize('path', ['/api/admin/runtime', '/api/admin/runtime/validate'])
+def test_invalid_connection_type_is_validation_error(client, connection, path):
+    admin(client)
+    value = valid_config()
+    value['dialogue']['connection'] = connection
+    response = client.post(path, json={'expected_revision': 0, 'config': value}, headers=ORIGIN)
+    assert response.status_code == 422
+    assert 'Invalid configuration' in response.text

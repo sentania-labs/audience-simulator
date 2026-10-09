@@ -56,6 +56,8 @@ def resolve(value, check_catalog=True):
         choice = value[stage]
         if set(choice) != {'connection', 'model'} or not isinstance(choice['model'], str) or not (re.fullmatch(r'[a-zA-Z0-9_.:/-]{1,120}', choice['model']) or (s.mock and choice['model'] == '')):
             raise ValueError('Invalid model identifier')
+        if not isinstance(choice['connection'], str):
+            raise ValueError('Invalid provider connection identifier')
         if choice['connection'].startswith('app-'):
             from .management import provider_store
             conn = provider_store().connection(choice['connection'])

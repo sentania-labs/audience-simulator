@@ -6,6 +6,7 @@ import re
 import hashlib
 from pathlib import Path
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from .config import Settings, Endpoint
 from .budget import Budget
@@ -30,8 +31,8 @@ def connections():
     return result
 
 
-def defaults():
-    s = Settings()
+def defaults(s=None):
+    s = s or Settings()
     try:
         rates = Budget(None, '', s, lambda _: None).rates
     except ValueError:
@@ -87,6 +88,16 @@ def build_id():
     return 'build-'+digest.hexdigest()[:12]
 
 
+def consent_revision(s, revision):
+    # Hash resolved destinations, not just editable choices. No credentials are returned.
+    flow = {stage: getattr(s, stage).base for stage in ('dialogue', 'vision', 'tts')}
+    flow.update(stt=s.stt_url, stt_provider=s.stt_provider, judge=bool(s.jev_shadow and s.jev_key and not s.mock),
+                log_transcripts=s.log_transcripts, mock=s.mock, revision=revision)
+    return hashlib.sha256(json.dumps(flow, sort_keys=True).encode()).hexdigest()
+
+
 def snapshot(s, revision):
-    return {'revision': revision, 'choices': getattr(s, 'runtime_choices', None), 'providers': {stage: {'model': s.stt_model, 'provider': s.stt_provider} if stage == 'stt' else {'model': getattr(s, stage).model} for stage in STAGES},
+    return {'revision': revision, 'consent_revision': consent_revision(s, revision),
+            'choices': getattr(s, 'runtime_choices', None) or defaults(s),
+            'data_flow': {**{stage: urlparse(getattr(s, stage).base).hostname for stage in ('dialogue', 'vision', 'tts')}, 'stt': urlparse(s.stt_url).hostname}, 'providers': {stage: {'model': s.stt_model, 'provider': s.stt_provider} if stage == 'stt' else {'model': getattr(s, stage).model} for stage in STAGES},
             'voices': getattr(s, 'voices', [s.voice]), 'personality_version': 'cast-v1', 'app_version': os.getenv('APP_VERSION') or build_id()}

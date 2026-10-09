@@ -158,7 +158,7 @@ def config(request: Request):
         Budget(control(), '', s, lambda _: None)
     except (ValueError, TypeError):
         missing.append('COST_RATES_JSON: valid pricing required for configured providers')
-    return {'revision': s.runtime_snapshot['revision'], 'mode': 'mock' if s.mock else 'hosted', 'missing': missing, 'limits': control().limits(),
+    return {'consent_revision': s.runtime_snapshot['consent_revision'], 'revision': s.runtime_snapshot['revision'], 'mode': 'mock' if s.mock else 'hosted', 'missing': missing, 'limits': control().limits(),
             'providers': {'stt': urlparse(s.stt_url).hostname,
                           'dialogue': urlparse(s.dialogue.base).hostname,
                           'vision': urlparse(s.vision.base).hostname,
@@ -206,7 +206,8 @@ async def meeting(ws: WebSocket):
     try:
         async with asyncio.timeout(15):
             join = await ws.receive_json()
-        if join.get('configuration_revision', 0) != s.runtime_snapshot['revision']:
+        if (join.get('configuration_revision', 0) != s.runtime_snapshot['revision']
+                or join.get('consent_revision') != s.runtime_snapshot['consent_revision']):
             await send({'type': 'error', 'stage': 'join', 'message': 'Meeting settings changed. Reload the page, review the provider data flow and join again.'})
             await ws.close(code=1008)
             return

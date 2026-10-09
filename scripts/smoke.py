@@ -22,7 +22,7 @@ async def main():
         cookie='; '.join(f'{k}={v}' for k,v in client.cookies.items())
         async with websockets.connect(base.replace('http','ws',1)+'/api/meeting',origin=origin,
                                       additional_headers={'Cookie':cookie}) as ws:
-            await ws.send(json.dumps(dict(type='join',sample_rate=48000,consent=True,
+            await ws.send(json.dumps(dict(type='join',consent_revision=cfg['consent_revision'],configuration_revision=cfg['revision'],sample_rate=48000,consent=True,
                                          attendees=[{'name':'Morgan'},{'name':'Riley'}])))
             first=json.loads(await ws.recv())
             assert first['type']=='joined' and len(first['attendees'])==2

@@ -6,6 +6,7 @@ import httpx
 from fastapi import APIRouter, Request, HTTPException, Response
 from pydantic import BaseModel, Field, ConfigDict
 from . import runtime
+from .providers import headers as provider_headers
 from .metrics import render
 from .review_store import ReviewStore, RETENTION_DAYS
 
@@ -151,7 +152,7 @@ async def validate_runtime(body: RuntimeChange, request: Request):
         async with asyncio.timeout(15), httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
             for stage in ('dialogue', 'vision', 'tts'):
                 endpoint = getattr(s, stage)
-                response = await client.get(endpoint.base+'/models', headers={'Authorization': 'Bearer '+endpoint.key})
+                response = await client.get(endpoint.base+'/models', headers=provider_headers(endpoint))
                 response.raise_for_status()
                 if endpoint.model not in [m.get('id') for m in response.json().get('data', [])]:
                     raise ValueError('Model not advertised')

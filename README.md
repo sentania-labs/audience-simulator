@@ -298,7 +298,7 @@ that a stall is caused by Kubernetes.
 `/?admin` contains saved feedback and runtime configuration. An immutable revision
 is created on save; loading a historical revision and saving creates a rollback
 revision. Concurrent stale saves are rejected. Existing meetings retain their
-provider objects, prices and revision. Reviews show that snapshot and timing totals.
+provider objects, prices and revision. Join consent includes a fingerprint of resolved provider destinations and logging mode, so deployment-level changes also require reviewing the new data flow. Reviews show that snapshot and timing totals.
 `APP_VERSION` may identify the release; otherwise a source/asset fingerprint is used.
 Configuration and history persist on the existing SQLite volume.
 

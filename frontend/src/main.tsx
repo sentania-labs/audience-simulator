@@ -7,7 +7,7 @@ import {MeetingFeedback} from './feedback';
 import {Access, Admin, api} from './access';
 
 type Event = {type:string;t_ms?:number;[key:string]:unknown};
-type Config = {revision:number;mode:string;missing:string[];providers:Record<string,string>;retention:string;limits:{max_attendees:number;meeting_usd:number;daily_usd:number;max_minutes:number}};
+type Config = {consent_revision:string;revision:number;mode:string;missing:string[];providers:Record<string,string>;retention:string;limits:{max_attendees:number;meeting_usd:number;daily_usd:number;max_minutes:number}};
 type CastPerson={id:string;name:string;role:string;expertise:string;style:string;objective:string;history:string};
 type Scenario={id:string;name:string;background:string;fiction_notice:string;source:string;cast:CastPerson[]};
 const defaultPersona = {cast_id:'',name:'Morgan',role:'Enterprise infrastructure architect',expertise:'Networking, recovery, virtualization and platform operations',style:'Technically precise, curious and candid',objective:''};
@@ -85,7 +85,7 @@ function App() {
       socket.onopen=()=>{
         if(ws.current!==socket){socket.close();return;}
         stage='setup';setStatus('Connecting speech providers');clearTimeout(timer);timer=setTimeout(timeout,20000);
-        send({type:'join',configuration_revision:config?.revision,attendees,background,scenario_id:scenarioId,consent,sample_rate:sampleRate});
+        send({type:'join',consent_revision:config?.consent_revision,configuration_revision:config?.revision,attendees,background,scenario_id:scenarioId,consent,sample_rate:sampleRate});
       };
       socket.onmessage=({data})=>{
         if(ws.current!==socket)return;

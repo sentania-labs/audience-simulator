@@ -17,7 +17,7 @@ def admin(client):
 def finished(client):
     revision = client.get('/api/config').json()['revision']
     with client.websocket_connect('/api/meeting', headers=ORIGIN) as ws:
-        ws.send_json(dict(type='join', configuration_revision=revision, consent=True, sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'], configuration_revision=revision, consent=True, sample_rate=48000))
         joined = ws.receive_json()
         ws.send_json(dict(type='end'))
         while ws.receive_json()['type'] != 'summary':
@@ -74,7 +74,7 @@ def test_runtime_snapshot_concurrency_rollback_and_secrets(client, monkeypatch):
     monkeypatch.setenv('DIALOGUE_API_KEY', 'never-output-this')
     value = valid_config()
     with client.websocket_connect('/api/meeting', headers=ORIGIN) as ws:
-        ws.send_json(dict(type='join', consent=True, sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'], consent=True, sample_rate=48000))
         original = ws.receive_json()
         assert original['configuration']['revision'] == 0
         assert client.post('/api/admin/runtime', json={'expected_revision':0,'config':value}, headers=ORIGIN).status_code == 200
@@ -125,7 +125,7 @@ def test_cast_is_authored_and_selected_on_server(client):
     scenarios = client.get('/api/scenarios').json()
     assert len(scenarios) == 4 and all(len(s['cast']) == 6 for s in scenarios)
     with client.websocket_connect('/api/meeting', headers=ORIGIN) as ws:
-        ws.send_json(dict(type='join', consent=True, sample_rate=48000, scenario_id='alderbank', attendees=[{'cast_id':'alderbank-0','name':'Spoof','objective':'Different'}]))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'], consent=True, sample_rate=48000, scenario_id='alderbank', attendees=[{'cast_id':'alderbank-0','name':'Spoof','objective':'Different'}]))
         joined = ws.receive_json()
         assert joined['persona']['name'] == 'Morgan Hale'
         assert 'next integration' in joined['persona']['objective']
@@ -139,7 +139,50 @@ def test_stale_provider_consent_cannot_join_after_admin_change(client):
     value = valid_config()
     assert client.post('/api/admin/runtime', json={'expected_revision':0,'config':value}, headers=ORIGIN).status_code == 200
     with client.websocket_connect('/api/meeting', headers=ORIGIN) as ws:
-        ws.send_json(dict(type='join', configuration_revision=0, consent=True, sample_rate=48000))
+        ws.send_json(dict(type='join', consent_revision=client.get('/api/config').json()['consent_revision'], configuration_revision=0, consent=True, sample_rate=48000))
         event = ws.receive_json()
         assert event['type'] == 'error' and 'settings changed' in event['message']
     assert control().stats()['meetings'] == []
+
+
+def test_deployment_destination_change_invalidates_consent_and_baseline_is_recorded(client, monkeypatch):
+    cfg = client.get('/api/config').json()
+    monkeypatch.setenv('DIALOGUE_BASE_URL', 'https://different-provider.invalid/v1')
+    updated = client.get('/api/config').json()
+    assert updated['revision'] == cfg['revision'] == 0
+    assert updated['consent_revision'] != cfg['consent_revision']
+    with client.websocket_connect('/api/meeting', headers=ORIGIN) as ws:
+        ws.send_json(dict(type='join', consent=True, sample_rate=48000, consent_revision=cfg['consent_revision']))
+        assert 'settings changed' in ws.receive_json()['message']
+    joined = finished(client)
+    assert joined['configuration']['choices']['dialogue']['connection'] == 'deployment'
+    assert joined['configuration']['choices']['rates']['tts_character'] > 0
+    assert joined['configuration']['data_flow']['dialogue'] == 'different-provider.invalid'
+
+
+def test_anonymous_validation_uses_same_headers_as_live_adapter(client, monkeypatch):
+    import app.management as management
+    import app.providers as providers
+    admin(client)
+    value = valid_config()
+    monkeypatch.setenv('PROVIDER_MODE','hosted')
+    monkeypatch.setenv('STT_API_KEY','test-recognition-key')
+    for stage in ('DIALOGUE','VISION','TTS'):
+        monkeypatch.delenv(stage+'_API_KEY', raising=False)
+    requests = []
+    class ModelList:
+        def raise_for_status(self): pass
+        def json(self): return {'data':[{'id':'test-model'}]}
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, headers):
+            requests.append(headers)
+            assert 'Authorization' not in headers
+            return ModelList()
+    monkeypatch.setattr(management.httpx,'AsyncClient',Client)
+    monkeypatch.setattr(providers,'adapters',lambda _: (providers.MockRecognition(),None,None,None))
+    response = client.post('/api/admin/runtime/validate',json={'expected_revision':0,'config':value},headers=ORIGIN)
+    assert response.status_code == 200
+    assert len(requests) == 3

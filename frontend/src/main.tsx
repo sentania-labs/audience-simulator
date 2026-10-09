@@ -31,6 +31,7 @@ function App() {
   const [speaking,setSpeaking]=useState(false);
   const [sharing,setSharing]=useState(false);
   const [events,setEvents]=useState<Event[]>([]);
+  const [previousReview,setPreviousReview]=useState<ReturnType<typeof review>|null>(null);
   const [partial,setPartial]=useState('');
   const [tab,setTab]=useState('Transcript');
   const [testText,setTestText]=useState('Explain the current shared view.');
@@ -40,6 +41,7 @@ function App() {
   const preview=useRef<HTMLVideoElement|null>(null);
   const base=useRef(0);
   const endedRef=useRef(false);
+  const endingRef=useRef(false);
   const [spokenText,setSpokenText]=useState('');
   useEffect(()=>{loadConfig();return()=>{ws.current?.close();void audio.current?.close();screen.current?.stop();};},[]);
   function send(value: Record<string,unknown>|ArrayBuffer) {
@@ -52,42 +54,68 @@ function App() {
     if(notify)send({type:'share',enabled:false});
   }
   async function join() {
+    if(connecting||joined)return;
     setConnecting(true);setEvents([]);setEnded(false);endedRef.current=false;base.current=0;
-    setStatus('Connecting microphone and providers');
+    endingRef.current=false;
+    setStatus('Opening microphone');
+    let failure='';
+    let stage='microphone';
+    const meetingAudio=new MeetingAudio(send,setSpeaking);
+    audio.current=meetingAudio;
     try {
-      audio.current=new MeetingAudio(send,setSpeaking);
-      const sampleRate=await audio.current.open();
-      audio.current.setMute(false);setMuted(false);setOutputMuted(false);
+      const sampleRate=await meetingAudio.open();
+      meetingAudio.setMute(false);setMuted(false);setOutputMuted(false);
+      stage='connection';setStatus('Connecting to meeting server');
       const socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/meeting`);
       ws.current=socket;
-      socket.onopen=()=>send({type:'join',attendees,background,consent,sample_rate:sampleRate});
+      let timer:ReturnType<typeof setTimeout>;
+      const timeout=()=>{
+        if(ws.current!==socket)return;
+        failure=stage==='connection'?'Meeting connection timed out. Check your connection and try again.':'Meeting setup timed out. Try joining again.';
+        setStatus(failure);socket.close();
+      };
+      timer=setTimeout(timeout,20000);
+      socket.onopen=()=>{
+        if(ws.current!==socket){socket.close();return;}
+        stage='setup';setStatus('Connecting speech providers');clearTimeout(timer);timer=setTimeout(timeout,20000);
+        send({type:'join',attendees,background,consent,sample_rate:sampleRate});
+      };
       socket.onmessage=({data})=>{
+        if(ws.current!==socket)return;
         const e=JSON.parse(data) as Event;
         if(e.type==='audio'){audio.current?.play(String(e.pcm),Number(e.response_id));return;}
         if(e.type==='response_start')setSpeaker(String(e.speaker||attendees[0].name));
         if(e.type==='usage')setUsage({meeting_usd:Number(e.meeting_usd),daily_usd:Number(e.daily_usd),warning:Boolean(e.warning)});
-        if(e.type==='limit'){setStatus(String(e.message));stopShare(false);void audio.current?.close();}
+        if(e.type==='limit'){failure=String(e.message);setStatus(failure);stopShare(false);void meetingAudio.close();}
         if(e.type==='partial'){setPartial(String(e.text));return;}
         if(e.type==='speaking_text'){setSpokenText(String(e.text));return;}
         if(e.type==='cancel'){audio.current?.stop(Number(e.next_id));setSpokenText('');}
         if(e.type==='response_done')audio.current?.done(Number(e.response_id));
         if(e.type==='joined'){
+          clearTimeout(timer);stage='meeting';
           audio.current?.reportState();
           base.current=performance.now()-Number(e.t_ms);setSpeaker(attendees[0].name);setJoined(true);setConnecting(false);setStatus('Meeting live');
         }
         if(e.type==='transcript')setPartial('');
-        if(e.type==='error')setStatus(String(e.message));
+        if(e.type==='error'){if(!base.current)failure=String(e.message);setStatus(String(e.message));}
         if(e.type==='summary'){endedRef.current=true;setEnded(true);setTab('Summary');setStatus('Session ended');}
         setEvents(previous=>[...previous,e].slice(-3000));
       };
-      socket.onclose=()=>{
-        setJoined(false);setConnecting(false);stopShare(false);void audio.current?.close();
-        if(!endedRef.current){if(base.current)setEnded(true);setStatus('Connection closed. Download the retained review; summary may be unavailable.');}
+      socket.onclose=(event)=>{
+        clearTimeout(timer);
+        if(ws.current!==socket)return;
+        ws.current=null;
+        setJoined(false);setConnecting(false);stopShare(false);void meetingAudio.close();
+        setEvents(previous=>[...previous,{type:'connection_closed',stage,code:event.code,clean:event.wasClean}]);
+        if(!endedRef.current){
+          if(base.current)setEnded(true);
+          setStatus(failure||(endingRef.current?'Meeting ended. The review is retained; the summary did not arrive.':base.current?'Connection lost. Your review is retained. Start a new meeting to reconnect.':`Could not connect to the meeting server (code ${event.code}). Try again. If it persists, use Feedback.`));
+        }
       };
-      socket.onerror=()=>setStatus('Meeting connection failed. Check backend configuration.');
+      socket.onerror=()=>{if(ws.current!==socket)return;failure||='Meeting connection failed. Check your connection and try again. If it persists, use Feedback.';setStatus(failure);};
     } catch(error) {
-      setConnecting(false);setStatus(error instanceof Error?error.message:'Microphone unavailable');
-      await audio.current?.close();
+      setConnecting(false);setStatus(stage==='microphone'?`Microphone setup failed: ${error instanceof Error?error.message:'unavailable'}. Check microphone permission and try again.`:'Meeting connection could not start. Try again.');
+      await meetingAudio.close();
     }
   }
   async function share() {
@@ -104,21 +132,30 @@ function App() {
   }
   function interrupt() {audio.current?.stop();send({type:'interrupt'});send({type:'speech_end'});setSpokenText('');}
   async function end() {
+    endingRef.current=true;
     stopShare();audio.current?.stop();audio.current?.setMute(true);send({type:'end'});
     setStatus('Ending session');
   }
-  function download() {
-    const payload={attendees,background,profile:config?.mode,events,retention:config?.retention};
+  function review() {return {attendees,background,profile:config?.mode,events,retention:config?.retention};}
+  function download(payload=review()) {
     const link=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));
     link.href=url;link.download='audience-session.json';link.click();URL.revokeObjectURL(url);
+  }
+  async function newMeeting() {
+    setPreviousReview(review());
+    const socket=ws.current;ws.current=null;socket?.close();
+    stopShare(false);await audio.current?.close();audio.current=null;
+    setJoined(false);setEnded(false);setConnecting(false);setSpeaking(false);setPartial('');setSpokenText('');
+    setTab('Transcript');setStatus('Ready for a new meeting. Your previous review is available below.');
   }
   const observations=events.filter(e=>e.type==='observation');
   const summary=events.findLast(e=>e.type==='summary');
   if(login)return <Access role="meeting" onReady={loadConfig}/>;
   return <div className="app">
-    <header><a className="brand" href="/">◉ <span>Audience<span className="soft"> / simulator</span></span></a><div className="headerStatus"><span className={`dot ${joined?'live':''}`}/>{status}</div></header>
+    <header><div className="brandBlock"><a className="brand" href="/">◉ <span>Audience<span className="soft"> / simulator</span></span></a>{config&&<a className="feedback" href="https://github.com/sentania-labs/audience-simulator/issues/new" target="_blank" rel="noopener noreferrer">Feedback <span>Open an issue ↗</span></a>}</div><div className="headerStatus"><span className={`dot ${joined?'live':''}`}/>{status}</div></header>
     <main>
       {!joined&&<div className="account"><a href="/?admin">Admin</a><button onClick={async()=>{await api("/api/auth/meeting/logout",{});setLogin(true);}}>Sign out</button></div>}
+      {previousReview&&<div className="previousReview"><span>Previous meeting review</span><button onClick={()=>download(previousReview)}>Download previous review</button></div>}
       {!joined&&!ended&&<section className="setup">
         <div><p className="eyebrow">A ROOM TO THINK OUT LOUD</p><h1>Your presentation.<br/>A curious audience.</h1><p className="intro">Practice with an audience that listens, asks questions, and follows what you share.</p>
           <div className="profile"><span className="avatar small">{persona.name[0]||'M'}</span><div><strong>{persona.name||'Your participant'}</strong><p>{persona.role}</p></div></div>
@@ -142,6 +179,7 @@ function App() {
           {!sharing&&<div className="participant"><span className={`avatar ${speaking?'speaking':''}`}>{speaker[0]||'M'}</span><h2>{speaker}</h2><p>{attendees.find(p=>p.name===speaker)?.role}</p><span className="badge">{ended?'Meeting ended':speaking?'Speaking':'Listening'}</span><p className="spoken">{speaking?spokenText:'Share a slide or demo to add visual context.'}</p></div>}
           {sharing&&<div className="profile"><span className="avatar small">{speaker[0]}</span><div><strong>{speaker}</strong><p>{speaking?'Speaking':'Listening'}</p></div></div>}
           <div className="roster">{attendees.map(a=><span className="badge" key={a.name}>{a.name}{speaking&&speaker===a.name?' · Speaking':''}</span>)}</div>
+          {ended&&<button className="primary newMeeting" onClick={()=>void newMeeting()}>New meeting</button>}
           <p className={usage.warning?'error':'hint'}>Estimated meeting spend: ${usage.meeting_usd.toFixed(3)} / ${config?.limits.meeting_usd.toFixed(2)}{usage.warning?' · Allowance nearly reached':''}</p>
           <div className="controls"><button disabled={ended} className={muted?'active':''} onClick={()=>{const value=!muted;setMuted(value);audio.current?.setMute(value);send({type:'mute',enabled:value});}}>{muted?'Unmute mic':'Mute mic'}</button><button disabled={ended} onClick={()=>{const value=!outputMuted;setOutputMuted(value);audio.current?.setOutputMute(value);}}>{outputMuted?'Enable speaker':'Mute speaker'}</button><button disabled={ended} onClick={()=>void share()}>{sharing?'Switch share':'Share screen'}</button>{sharing&&<button onClick={()=>stopShare()}>Stop sharing</button>}<button disabled={ended} onClick={interrupt}>Interrupt</button><button className="danger" disabled={ended} onClick={()=>void end()}>End meeting</button></div>
           {config?.mode==='mock'&&!ended&&<form className="mockTurn" onSubmit={e=>{e.preventDefault();send({type:'mock_turn',text:testText});}}><label>Mock turn (no speech recognition)<input value={testText} onChange={e=>setTestText(e.target.value)}/></label><button>Send test turn</button></form>}
@@ -153,7 +191,7 @@ function App() {
             {tab==='Observations'&&<>{observations.map((e,i)=><article key={i}><div className="entryHead"><strong>Shared view {i+1}</strong><time>{stamp(e.captured_ms)}</time></div><p>{String(e.text)}</p><small>Observed at {stamp(e.observed_ms)}. Earlier views are historical evidence.</small></article>)}{!observations.length&&<p className="empty">Share a screen to add visible evidence.</p>}</>}
             {tab==='Metrics'&&<><p className="hint">Observed in this session. Mock timings measure wiring only. Playback timing is scheduled, not acoustically measured.</p>{events.filter(e=>e.type==='metric'||e.type==='browser_metric').map((e,i)=><article className="metric" key={i}><span>{String(e.stage).replaceAll('_',' ')}</span><strong>{Math.round(Number(e.value_ms))} ms</strong></article>)}</>}
             {tab==='Summary'&&(summary?<><h3>Session recap</h3><p className="hint">Extracted from recorded evidence; not coaching.</p><h4>Presenter topics</h4>{(summary.topics as string[]).map((s,i)=><p key={i}>{s}</p>)}<h4>Participant questions</h4>{(summary.questions as string[]).map((s,i)=><p key={i}>{s}</p>)}<h4>Visual moments</h4>{(summary.visual_moments as {text:string;captured_ms:number}[]).map((s,i)=><p key={i}>{stamp(s.captured_ms)} · {s.text}</p>)}<h4>Limitations</h4>{(summary.limitations as string[]).map((s,i)=><p key={i}>{s}</p>)}</>:<p className="empty">End the meeting to prepare your recap.</p>)}
-          </div><footer><span>{events.length} timeline events</span><button onClick={download}>Download session</button></footer>
+          </div><footer><span>{events.length} timeline events</span><button onClick={()=>download()}>Download session</button></footer>
         </aside>
       </div>}
     </main><div className="bottom"><span>Audience Simulator · Peer preview</span><span>Your audience. Your voice. Shared context.</span></div>

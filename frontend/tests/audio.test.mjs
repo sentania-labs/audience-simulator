@@ -66,3 +66,16 @@ test('completion after PCM drains emits exactly one playback ended receipt',()=>
   assert.equal(events.filter(e=>e.type==='playback_ended'&&e.response_id===9).length,1);
   assert.equal(audio.active,-1);
 });
+
+test('concurrent teardown closes the audio context once and releases the microphone',async()=>{
+  const audio=new MeetingAudio(()=>{},()=>{});
+  let closes=0,stops=0;
+  audio.ctx=new FakeContext();
+  audio.ctx.close=async()=>{closes++;if(closes>1)throw new Error('Already closing');await Promise.resolve();};
+  audio.stream={getTracks:()=>[{stop(){stops++;}}]};
+  await Promise.all([audio.close(),audio.close()]);
+  assert.equal(closes,1);
+  assert.equal(stops,1);
+  assert.equal(audio.ctx,null);
+  assert.equal(audio.stream,null);
+});

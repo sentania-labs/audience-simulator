@@ -129,10 +129,19 @@ export class MeetingAudio {
   }
 
   async close() {
+    this.muted = true;
     this.stop();
+    if (this.node) this.node.port.onmessage = null;
     this.node?.disconnect();
+    this.node = null;
     this.stream?.getTracks().forEach(t => t.stop());
-    await this.ctx?.close();
+    this.stream = null;
+    const context = this.ctx;
     this.ctx = null;
+    this.gain = null;
+    if (context) {
+      context.onstatechange = null;
+      if (context.state !== 'closed') await context.close();
+    }
   }
 }

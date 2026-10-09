@@ -1,0 +1,81 @@
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+  packages: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Validate release tag
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: |
+          python -m venv .venv
+          .venv/bin/pip install -r backend/requirements.txt
+          npm ci --prefix frontend
+          scripts/install-ci-tools.sh
+      - run: scripts/check.sh
+      - run: helm lint charts/audience-simulator
+      - name: Authenticate registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build or reuse immutable image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY}:$VERSION"
+          exists="$(.venv/bin/python scripts/registry-exists.py "$GITHUB_REPOSITORY" "$VERSION")"
+          if [[ "$exists" == true ]]; then
+            docker pull "$image"
+            [[ "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" == "$GITHUB_SHA" ]]
+            [[ "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" == "$VERSION" ]]
+            echo "EXISTS=true" >> "$GITHUB_ENV"
+          else
+            docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"               --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.version=$VERSION" -t "$image" .
+            echo "EXISTS=false" >> "$GITHUB_ENV"
+          fi
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+      - run: scripts/smoke-container.sh "$IMAGE"
+      - run: scripts/smoke-kind.sh "$IMAGE"
+      - name: Publish tested image and release bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          if [[ "$EXISTS" == false ]]; then docker push "$IMAGE"; fi
+          docker pull "$IMAGE"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE" | cut -d@ -f2)"
+          python scripts/release-bundle.py "$VERSION" "$digest"
+          latest="$(gh release list --limit 100 --json tagName --jq '.[].tagName' | { cat; echo "$VERSION"; } | sort -V | tail -n1)"
+          is_latest=false
+          if [[ "$latest" == "$VERSION" ]]; then
+            is_latest=true
+            docker tag "$IMAGE" "ghcr.io/$GITHUB_REPOSITORY:latest"
+            docker push "ghcr.io/$GITHUB_REPOSITORY:latest"
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" ".release/audience-simulator-$VERSION.tar.gz" --clobber
+          else
+            gh release create "$VERSION" ".release/audience-simulator-$VERSION.tar.gz"               --verify-tag --latest="$is_latest" --title "$VERSION: peer preview" --notes-file docs/release-notes.md
+          fi

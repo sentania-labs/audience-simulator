@@ -1,12 +1,33 @@
 services:
   audience:
+    image: ${AUDIENCE_IMAGE:-ghcr.io/sentania-labs/audience-simulator:latest} # Pin a release tag or digest in deployments.
     build: .
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - audience-data:/app/data
     environment:
+      MEETING_PASSWORD: ${MEETING_PASSWORD:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      DATA_PATH: /app/data/control.sqlite3
+      MEETING_BUDGET_USD: ${MEETING_BUDGET_USD:-1.50}
+      DAILY_BUDGET_USD: ${DAILY_BUDGET_USD:-10.00}
+      MAX_CONCURRENT_MEETINGS: ${MAX_CONCURRENT_MEETINGS:-3}
+      MAX_ATTENDEES: ${MAX_ATTENDEES:-4}
+      MAX_MEETING_MINUTES: ${MAX_MEETING_MINUTES:-30}
+      IDLE_TIMEOUT_MINUTES: ${IDLE_TIMEOUT_MINUTES:-5}
+      COST_RATES_JSON: ${COST_RATES_JSON:-}
+      TTS_VOICES: ${TTS_VOICES:-coral,ash,sage,echo}
+      JEV_SHADOW: ${JEV_SHADOW:-false}
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-jev-1.13.0}
+      LOG_TRANSCRIPTS: ${LOG_TRANSCRIPTS:-false}
       PROVIDER_MODE: ${PROVIDER_MODE:-hosted}
-      STT_URL: ${STT_URL:-wss://api.deepgram.com/v1/listen}
-      STT_MODEL: ${STT_MODEL:-nova-3}
+      STT_PROVIDER: ${STT_PROVIDER:-deepgram}
+      STT_URL: ${STT_URL:-}
+      STT_MODEL: ${STT_MODEL:-}
       STT_API_KEY: ${STT_API_KEY:-}
       DIALOGUE_BASE_URL: ${DIALOGUE_BASE_URL:-https://api.openai.com/v1}
       DIALOGUE_MODEL: ${DIALOGUE_MODEL:-}
@@ -19,6 +40,11 @@ services:
       TTS_API_KEY: ${TTS_API_KEY:-}
       TTS_VOICE: ${TTS_VOICE:-alloy}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     read_only: true
     tmpfs:
       - /tmp
@@ -26,3 +52,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+
+volumes:
+  audience-data:

@@ -1,0 +1,42 @@
+image:
+  repository: ghcr.io/sentania-labs/audience-simulator
+  tag: latest # Pin a released tag or digest in your deployment repository.
+  digest: ""
+  pullPolicy: IfNotPresent
+existingSecret: audience-simulator
+imagePullSecrets: []
+persistence:
+  size: 1Gi
+  storageClass: ""
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+ingress:
+  enabled: false
+  className: ""
+  host: audience.example.invalid
+  tlsSecret: ""
+  annotations: {}
+config:
+  PROVIDER_MODE: hosted
+  FORWARDED_ALLOW_IPS: "127.0.0.1" # Override with trusted ingress proxy addresses/CIDRs.
+  COOKIE_SECURE: "true"
+  ALLOWED_ORIGINS: https://audience.example.invalid
+  MEETING_BUDGET_USD: "1.50"
+  DAILY_BUDGET_USD: "10.00"
+  MAX_CONCURRENT_MEETINGS: "3"
+  MAX_ATTENDEES: "4"
+  MAX_MEETING_MINUTES: "30"
+  IDLE_TIMEOUT_MINUTES: "5"
+  STT_PROVIDER: deepgram
+  STT_MODEL: nova-3
+  DIALOGUE_MODEL: gpt-4.1-mini
+  VISION_MODEL: gpt-4.1-mini
+  TTS_MODEL: gpt-4o-mini-tts
+  TTS_VOICE: coral
+  TTS_VOICES: coral,ash,sage,echo
+  JEV_SHADOW: "false"

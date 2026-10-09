@@ -8,3 +8,6 @@ frontend/dist
 __pycache__
 .pytest_cache
 .lavish
+data
+.release
+**/*.env

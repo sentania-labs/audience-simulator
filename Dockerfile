@@ -9,7 +9,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 FRONTEND_DIST=/app/frontend/dist
 WORKDIR /app
 COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt && useradd --create-home audience
+RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 1000 --create-home audience && mkdir /app/data && chown audience:audience /app/data
 COPY backend/app ./backend/app
 COPY --from=frontend /build/dist ./frontend/dist
 USER audience
